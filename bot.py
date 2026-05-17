@@ -53,8 +53,8 @@ RANKED_STYLE_ROLE = 'Ranked Style'
 TRUE_POWER_ROLE   = 'True Power'
 ELITE_RS_ROLE = 'Elite RS'
 
-DISCORD_ROLES = ['Owner', 'SOD_PVP', 'High Admin', 'Admin', 'Admin Of The Month', 'Manager']
-DISCORD_ROLE_LEVEL = {'': 0, 'Manager': 1, 'Admin Of The Month': 2, 'Admin': 3, 'High Admin': 4, 'SOD_PVP': 5, 'Owner': 6}
+DISCORD_ROLES = ['Owner', 'SOD_PVP', 'High Admin', 'Admin Of The Month', 'Admin', 'Manager']
+DISCORD_ROLE_LEVEL = {'': 0, 'Manager': 1, 'Admin': 2, 'Admin Of The Month': 3, 'High Admin': 4, 'SOD_PVP': 5, 'Owner': 6}
 
 CMD_DEFAULTS = {
     'pvp':          'owner',
@@ -1106,7 +1106,7 @@ async def on_member_update(before, after):
 def get_player_discord_role(member):
     # Strip emojis so "High Admin 🌟" matches 'High Admin', etc.
     role_names = {re.sub(r'[^\w\s]', '', r.name).strip() for r in member.roles}
-    for role in ['Owner', 'SOD_PVP', 'High Admin', 'Admin', 'Admin Of The Month', 'Manager']:
+    for role in ['Owner', 'SOD_PVP', 'High Admin', 'Admin Of The Month', 'Admin', 'Manager']:
         if role in role_names: return role
     return ''
 
