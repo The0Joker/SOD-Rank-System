@@ -1104,7 +1104,8 @@ async def on_member_update(before, after):
         await log_role_change(after.guild, player_name, old_discord_role, new_discord_role)
 
 def get_player_discord_role(member):
-    role_names = {r.name for r in member.roles}
+    # Strip emojis so "High Admin 🌟" matches 'High Admin', etc.
+    role_names = {re.sub(r'[^\w\s]', '', r.name).strip() for r in member.roles}
     for role in ['Owner', 'SOD_PVP', 'High Admin', 'Admin', 'Admin Of The Month', 'Manager']:
         if role in role_names: return role
     return ''
