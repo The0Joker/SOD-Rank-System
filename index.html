@@ -1135,14 +1135,26 @@ function renderGODBanner(){
 }
 
 function renderRoster(){
-  const ps=sortedRoster();
-  if(!ps.length){document.getElementById('roster-body').innerHTML='<div class="empty">No members yet.</div>';return;}
+  const isRS=currentLeague==='RS';
+  let ps=sortedRoster();
+  if(isRS) ps=ps.filter(p=>p.in_rs);
+  if(!ps.length){document.getElementById('roster-body').innerHTML=`<div class="empty">No ${isRS?'RS':'TP'} members yet.</div>`;return;}
   document.getElementById('roster-body').innerHTML=ps.map((p,i)=>{
-    const t=p.wins+p.losses,wr=t>0?Math.round(p.wins/t*100):0;
-    const isUnranked=!!p.unranked;
-    const rankBadge=isUnranked
-      ?`<span class="rb rUnranked">Unranked</span>`
-      :`<span class="rb r${esc(p.rank)}">${esc(p.rank)}</span>`;
+    let wins,losses,pts,rank,isUnranked,rankBadge;
+    if(isRS){
+      wins=p.rs_wins||0; losses=p.rs_losses||0; pts=p.rs_points||0;
+      rank=p.rs_rank||'F'; isUnranked=!!p.rs_unranked;
+      rankBadge=isUnranked
+        ?`<span class="rb rUnranked">Unranked</span>`
+        :`<span class="rb r${esc(rank)}">${esc(rank)} RS</span>`;
+    }else{
+      wins=p.wins||0; losses=p.losses||0; pts=p.points||0;
+      rank=p.rank||'F'; isUnranked=!!p.unranked;
+      rankBadge=isUnranked
+        ?`<span class="rb rUnranked">Unranked</span>`
+        :`<span class="rb r${esc(rank)}">${esc(rank)}</span>`;
+    }
+    const t=wins+losses,wr=t>0?Math.round(wins/t*100):0;
     return`<div class="tr roster-tr${isUnranked?' unranked-row':''}">
       <div style="color:var(--tx2);font-size:12px;text-align:center;">${i+1}</div>
       <div style="font-weight:700;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
@@ -1152,9 +1164,9 @@ function renderRoster(){
         ${leagueBadge(p)}
       </div>
       <div>${rankBadge}</div>
-      <div style="color:var(--txs)">${p.wins}</div>
-      <div style="color:var(--txd)">${p.losses}</div>
-      <div style="font-weight:700">${p.points||0}</div>
+      <div style="color:var(--txs)">${wins}</div>
+      <div style="color:var(--txd)">${losses}</div>
+      <div style="font-weight:700">${pts}</div>
       <div style="color:var(--tx2)">${wr}%</div>
       <div></div>
       <div class="erow">
