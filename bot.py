@@ -1016,13 +1016,42 @@ async def on_member_join(member):
 # ── AUTO MEMBER LEAVE ─────────────────────────────────────────────────────────
 @bot.event
 async def on_member_remove(member):
+    # Try current username key first, then fall back to discord_handle match
+    # (handles the case where the player changed their username since joining)
     key = member.name.lower()
+    handle = f'@{member.name}'
     existing = await sb_get('players', f'key=eq.{key}')
-    if not existing: return
-    await sb_delete('players', f'key=eq.{key}')
+    if not existing:
+        existing = await sb_get('players', f'discord_handle=eq.{handle}')
+    if not existing:
+        print(f'[on_member_remove] {member.name} not found in DB by key or handle — skipping')
+        return
+    p = existing[0]
+    await sb_delete('players', f'key=eq.{p["key"]}')
     asyncio.create_task(update_all_posts(member.guild))
     log_ch = bot.get_channel(LOG_CHANNEL_ID)
     if log_ch: await log_ch.send(f'👋 **{member.display_name}** left the server and was removed from the roster.')
+
+# ── AUTO HANDLE/USERNAME UPDATE ───────────────────────────────────────────────
+@bot.event
+async def on_user_update(before, after):
+    if before.name == after.name: return
+    old_handle = f'@{before.name}'
+    new_handle  = f'@{after.name}'
+    # Find player by old key or old handle
+    existing = await sb_get('players', f'key=eq.{before.name.lower()}')
+    if not existing:
+        existing = await sb_get('players', f'discord_handle=eq.{old_handle}')
+    if not existing:
+        return
+    p = existing[0]
+    await sb_patch('players', f'key=eq.{p["key"]}', {'discord_handle': new_handle})
+    guild = next(iter(bot.guilds), None)
+    log_ch = bot.get_channel(LOG_CHANNEL_ID)
+    if log_ch:
+        await log_ch.send(f'📝 **{p["name"]}** changed their Discord username: **{before.name}** → **{after.name}** — handle updated automatically.')
+    if guild:
+        asyncio.create_task(update_all_posts(guild))
 
 # ── AUTO ROLE SYNC ────────────────────────────────────────────────────────────
 @bot.event
