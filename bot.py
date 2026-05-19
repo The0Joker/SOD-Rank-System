@@ -670,36 +670,6 @@ async def sync_discord_roles_from_guild(guild):
             except Exception as e:
                 print(f'[role_from_guild] patch error for {p["name"]}: {e}')
 
-        # ── Sync RS league membership (add-only, ID-based) ────────────────────
-        has_rs_role = bool(rs_role and rs_role.id in member_role_ids)
-        if has_rs_role and not p.get('in_rs', False):
-            print(f'[role_from_guild] {p["name"]}: has Ranked Style role → joining RS')
-            try:
-                await sb_patch('players', f'key=eq.{p["key"]}', {
-                    'in_rs': True, 'rs_rank': p.get('rs_rank') or 'F',
-                    'rs_points': p.get('rs_points') or 0,
-                })
-                await update_discord_rs_role(guild, handle, p.get('rs_rank') or 'F',
-                                             unranked=bool(p.get('rs_unranked', False)))
-            except Exception as e:
-                print(f'[role_from_guild] RS join patch error for {p["name"]}: {e}')
-        # Never auto-remove from RS — removal is manual only
-
-        # ── Sync TP league membership (add-only, ID-based) ────────────────────
-        has_tp_role = bool(tp_role and tp_role.id in member_role_ids)
-        if has_tp_role and not p.get('in_tp', False):
-            print(f'[role_from_guild] {p["name"]}: has True Power role → joining TP')
-            try:
-                await sb_patch('players', f'key=eq.{p["key"]}', {
-                    'in_tp': True, 'rank': p.get('rank') or 'F',
-                    'points': p.get('points') or 0,
-                })
-                await update_discord_role(guild, handle, p.get('rank') or 'F',
-                                          actual_role, unranked=bool(p.get('unranked', False)))
-            except Exception as e:
-                print(f'[role_from_guild] TP join patch error for {p["name"]}: {e}')
-        # Never auto-remove from TP — removal is manual only
-
         await asyncio.sleep(0.2)
     return changed
 
@@ -779,6 +749,8 @@ async def sync_all_roles(guild):
     players = await sb_get('players', 'order=join_order.asc')
     print(f'[sync_all_roles] syncing {len(players)} players')
     for p in players:
+        if p.get('in_tp') is False:
+            continue  # RS-only player — not in TP, skip TP rank role assignment
         handle = p.get('discord_handle', '')
         if not handle:
             print(f'[sync_all_roles] skipping {p.get("name")} — no handle')
@@ -797,8 +769,6 @@ async def sync_all_roles(guild):
     await sync_all_rs_roles(guild)  # also sync RS roles
 
 async def update_all_posts(guild=None):
-    if guild:
-        await sync_league_from_roles(guild)
     await update_post(CURRENT_LB_ID,    await build_current_lb(guild))
     await update_post(ALLTIME_LB_ID,    await build_alltime_lb(guild))
     await update_post(RS_CURRENT_LB_ID, await build_rs_current_lb(guild))
@@ -865,6 +835,26 @@ async def enforce_roles(guild):
                 print(f'[enforce_roles] {p["name"]}: missing RS role → re-adding')
                 await _add_role_with_retry(member, rs_role, 'add')
 
+        # Remove TP base role + TP rank roles if player is explicitly NOT in TP
+        if p.get('in_tp') is False:
+            if tp_role and tp_role.id in member_role_ids:
+                print(f'[enforce_roles] {p["name"]}: has TP role but not in TP index → removing')
+                await _add_role_with_retry(member, tp_role, 'remove')
+            for rn in ROLE_NAMES.values():
+                rr = find_guild_role(guild, rn)
+                if rr and rr.id in member_role_ids:
+                    await _add_role_with_retry(member, rr, 'remove')
+
+        # Remove RS base role + RS rank roles if player is NOT in RS
+        if not p.get('in_rs', False):
+            if rs_role and rs_role.id in member_role_ids:
+                print(f'[enforce_roles] {p["name"]}: has RS role but not in RS index → removing')
+                await _add_role_with_retry(member, rs_role, 'remove')
+            for rn in RS_ROLE_NAMES.values():
+                rr = find_guild_role(guild, rn)
+                if rr and rr.id in member_role_ids:
+                    await _add_role_with_retry(member, rr, 'remove')
+
         await asyncio.sleep(0.1)
 
     # Assign Elite RS to the correct person (highest-points S-rank RS player)
@@ -897,8 +887,6 @@ async def periodic_role_sync():
         try:
             guild = next(iter(bot.guilds), None)
             if guild:
-                print('[periodic_sync] syncing league memberships from Discord roles...')
-                await sync_league_from_roles(guild)
                 print('[periodic_sync] reading admin roles from guild...')
                 role_changed = await sync_discord_roles_from_guild(guild)
                 print('[periodic_sync] syncing rank roles...')
@@ -1463,9 +1451,8 @@ async def slash_ascension(interaction: discord.Interaction, challenger: str, def
 async def slash_sync(interaction: discord.Interaction):
     await interaction.response.defer()
     if not await check_permission(interaction, 'sync'): return
-    await interaction.followup.send('🔄 Syncing league memberships, roles, and posts…')
+    await interaction.followup.send('🔄 Enforcing roles from index and rebuilding posts…')
     guild = interaction.guild
-    await sync_league_from_roles(guild, log_channel=interaction.channel)
     await enforce_roles(guild)
     asyncio.create_task(update_all_posts(guild))
 
@@ -1671,7 +1658,7 @@ async def _add_member(ctx, name, rank='F', flag='', handle='', role=''):
             return
         await _send(ctx,f'❌ **{name}** already exists.'); return
     jo=await get_next_join_order()
-    await sb_upsert('players',[{'key':key,'name':name,'wins':0,'losses':0,'streak':0,'rank':rank,'points':0,'start_points':0,'discord_handle':handle,'flag':flag,'discord_role':role,'join_order':jo,'unranked':False}])
+    await sb_upsert('players',[{'key':key,'name':name,'wins':0,'losses':0,'streak':0,'rank':rank,'points':0,'start_points':0,'discord_handle':handle,'flag':flag,'discord_role':role,'join_order':jo,'unranked':False,'in_tp':False,'in_rs':False,'rs_rank':'F','rs_points':0,'rs_wins':0,'rs_losses':0,'rs_streak':0,'rs_start_points':0,'rs_unranked':False}])
     re=RANK_EMOJI.get(rank,'')
     await _send(ctx,f'✅ **{name}** {flag} added as **{rank} Rank** {re}!')
     guild=_guild(ctx)
