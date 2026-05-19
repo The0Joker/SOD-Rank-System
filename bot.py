@@ -749,8 +749,10 @@ async def sync_all_roles(guild):
     players = await sb_get('players', 'order=join_order.asc')
     print(f'[sync_all_roles] syncing {len(players)} players')
     for p in players:
-        if p.get('in_tp') is False:
-            continue  # RS-only player — not in TP, skip TP rank role assignment
+        in_tp_val = p.get('in_tp')
+        is_tp_member = in_tp_val is True or (in_tp_val is None and not p.get('in_rs', False))
+        if not is_tp_member:
+            continue  # not in TP — enforce_roles handles role cleanup
         handle = p.get('discord_handle', '')
         if not handle:
             print(f'[sync_all_roles] skipping {p.get("name")} — no handle')
@@ -822,9 +824,13 @@ async def enforce_roles(guild):
         if not p:
             continue
 
-        # Re-add TP base role if player is in TP but missing the role.
-        # Use "is not False" because in_tp=null (old players) should default to in-TP.
-        if p.get('in_tp') is not False and not p.get('unranked', False):
+        # A player is a TP member if in_tp=True, or in_tp=null AND not in RS
+        # (null = legacy player added before explicit flags, treated as TP unless RS-only)
+        in_tp_val = p.get('in_tp')
+        is_tp_member = in_tp_val is True or (in_tp_val is None and not p.get('in_rs', False))
+
+        # Re-add TP base role if player is in TP but missing the role
+        if is_tp_member and not p.get('unranked', False):
             if tp_role and tp_role.id not in member_role_ids:
                 print(f'[enforce_roles] {p["name"]}: missing TP role → re-adding')
                 await _add_role_with_retry(member, tp_role, 'add')
@@ -835,8 +841,8 @@ async def enforce_roles(guild):
                 print(f'[enforce_roles] {p["name"]}: missing RS role → re-adding')
                 await _add_role_with_retry(member, rs_role, 'add')
 
-        # Remove TP base role + TP rank roles if player is explicitly NOT in TP
-        if p.get('in_tp') is False:
+        # Remove TP base role + TP rank roles if player is not a TP member
+        if not is_tp_member:
             if tp_role and tp_role.id in member_role_ids:
                 print(f'[enforce_roles] {p["name"]}: has TP role but not in TP index → removing')
                 await _add_role_with_retry(member, tp_role, 'remove')
@@ -1349,6 +1355,9 @@ async def slash_leaveleague(interaction: discord.Interaction, league: app_comman
         if guild:
             member = await find_member(guild, p.get('discord_handle',''))
             if member:
+                tp_base = find_guild_role(guild, TRUE_POWER_ROLE)
+                if tp_base and tp_base in member.roles:
+                    await _add_role_with_retry(member, tp_base, 'remove')
                 for rn in ROLE_NAMES.values():
                     r = find_guild_role(guild, rn)
                     if r and r in member.roles:
