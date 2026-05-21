@@ -1704,6 +1704,7 @@ async def _unrank_member(ctx, name):
     app_commands.Choice(name='True Power (TP)', value='TP'),
     app_commands.Choice(name='Ranked Style (RS)', value='RS'),
 ])
+@app_commands.autocomplete(name=autocomplete_ranked_players)
 async def slash_challenge(interaction: discord.Interaction, name: str, league: app_commands.Choice[str]):
     await interaction.response.defer()
     if not await check_permission(interaction, 'challenge'): return
