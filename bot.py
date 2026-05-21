@@ -1164,6 +1164,54 @@ async def autocomplete_ranked_players(_interaction: discord.Interaction, current
         print(f'[autocomplete] error: {e}')
         return []
 
+async def autocomplete_all_players(_interaction: discord.Interaction, current: str):
+    """All players including unranked — for admin commands."""
+    try:
+        async with httpx.AsyncClient(timeout=2.5) as c:
+            r = await c.get(
+                f'{SUPABASE_URL}/rest/v1/players?select=name&order=join_order.asc',
+                headers=HEADERS)
+            players = r.json() if r.status_code == 200 else []
+        return [
+            app_commands.Choice(name=p['name'], value=p['name'])
+            for p in players
+            if current.lower() in p['name'].lower()
+        ][:25]
+    except Exception as e:
+        print(f'[autocomplete] error: {e}')
+        return []
+
+async def autocomplete_my_challengers(interaction: discord.Interaction, current: str):
+    """Players who have a pending challenge against the current user — for /accept and /decline."""
+    try:
+        username = interaction.user.name.lower()
+        async with httpx.AsyncClient(timeout=2.5) as c:
+            rp = await c.get(
+                f'{SUPABASE_URL}/rest/v1/players?select=key,discord_handle',
+                headers=HEADERS)
+            players = rp.json() if rp.status_code == 200 else []
+        user_key = None
+        for p in players:
+            handle = (p.get('discord_handle') or '').lstrip('@').lower()
+            if handle == username or p.get('key', '').lower() == username:
+                user_key = p['key']
+                break
+        if not user_key:
+            return []
+        async with httpx.AsyncClient(timeout=2.5) as c:
+            rc = await c.get(
+                f'{SUPABASE_URL}/rest/v1/challenges?defender_key=eq.{user_key}&status=eq.pending&select=challenger_name',
+                headers=HEADERS)
+            challenges = rc.json() if rc.status_code == 200 else []
+        return [
+            app_commands.Choice(name=ch['challenger_name'], value=ch['challenger_name'])
+            for ch in challenges
+            if current.lower() in ch['challenger_name'].lower()
+        ][:25]
+    except Exception as e:
+        print(f'[autocomplete_challengers] error: {e}')
+        return []
+
 @bot.tree.command(name='pvp', description='Log a PvP match result')
 @app_commands.describe(winner='Winner name', loser='Loser name', score='Match score', league='Which league')
 @app_commands.choices(
@@ -1184,25 +1232,35 @@ async def slash_pvp(interaction: discord.Interaction, winner: str, loser: str, s
     await _log_pvp(interaction, winner, loser, score.value, league.value)
 
 @bot.tree.command(name='addmember', description='Add a new clan member')
-@app_commands.describe(name='Player name', rank='Starting rank', flag='Country flag emoji', handle='Discord handle e.g. @joker', role='Server role')
+@app_commands.describe(name='Player name', rank='Starting rank', flag='Country flag emoji', handle='Discord handle e.g. @joker', role='Server role', league='League(s) to join')
 @app_commands.choices(
     rank=[app_commands.Choice(name=r, value=r) for r in RANKS],
     role=[
-        app_commands.Choice(name='Member',           value=''),
-        app_commands.Choice(name='Manager',          value='Manager'),
+        app_commands.Choice(name='Member',             value=''),
+        app_commands.Choice(name='Manager',            value='Manager'),
         app_commands.Choice(name='Admin Of The Month', value='Admin Of The Month'),
-        app_commands.Choice(name='Admin',            value='Admin'),
-        app_commands.Choice(name='High Admin',       value='High Admin'),
-        app_commands.Choice(name='Owner',            value='Owner'),
+        app_commands.Choice(name='Admin',              value='Admin'),
+        app_commands.Choice(name='High Admin',         value='High Admin'),
+        app_commands.Choice(name='Owner',              value='Owner'),
+    ],
+    league=[
+        app_commands.Choice(name='Roster only (no league)', value='none'),
+        app_commands.Choice(name='True Power (TP)',          value='TP'),
+        app_commands.Choice(name='Ranked Style (RS)',        value='RS'),
+        app_commands.Choice(name='Both TP and RS',           value='both'),
     ]
 )
-async def slash_addmember(interaction: discord.Interaction, name: str, rank: app_commands.Choice[str]=None, flag: str='', handle: str='', role: app_commands.Choice[str]=None):
+async def slash_addmember(interaction: discord.Interaction, name: str, rank: app_commands.Choice[str]=None, flag: str='', handle: str='', role: app_commands.Choice[str]=None, league: app_commands.Choice[str]=None):
     await interaction.response.defer()
     if not await check_permission(interaction, 'addmember'): return
-    await _add_member(interaction, name, rank.value if rank else 'F', flag, handle, role.value if role else '')
+    league_val = league.value if league else 'none'
+    in_tp = league_val in ('TP', 'both')
+    in_rs = league_val in ('RS', 'both')
+    await _add_member(interaction, name, rank.value if rank else 'F', flag, handle, role.value if role else '', in_tp=in_tp, in_rs=in_rs)
 
 @bot.tree.command(name='removemember', description='Remove a clan member')
 @app_commands.describe(name='Player name', kick='True = delete permanently, False = just unrank (default)')
+@app_commands.autocomplete(name=autocomplete_all_players)
 async def slash_removemember(interaction: discord.Interaction, name: str, kick: bool=False):
     await interaction.response.defer()
     if not await check_permission(interaction, 'removemember'): return
@@ -1218,6 +1276,7 @@ async def slash_removemember(interaction: discord.Interaction, name: str, kick: 
     app_commands.Choice(name='Ranked Style (RS)', value='RS'),
     app_commands.Choice(name='Both leagues', value='both'),
 ])
+@app_commands.autocomplete(name=autocomplete_all_players)
 async def slash_unrank(interaction: discord.Interaction, name: str, league: app_commands.Choice[str]):
     await interaction.response.defer()
     if not await check_permission(interaction, 'unrank'): return
@@ -1268,6 +1327,7 @@ async def slash_unrank(interaction: discord.Interaction, name: str, league: app_
     ],
     rank=[app_commands.Choice(name=r, value=r) for r in RANKS]
 )
+@app_commands.autocomplete(name=autocomplete_all_players)
 async def slash_rerank(interaction: discord.Interaction, name: str, league: app_commands.Choice[str], rank: app_commands.Choice[str]=None):
     await interaction.response.defer()
     if not await check_permission(interaction, 'rerank'): return
@@ -1392,6 +1452,7 @@ async def slash_leaveleague(interaction: discord.Interaction, league: app_comman
     app_commands.Choice(name='3 – 1 (Strong Win)',  value='3-1'),
     app_commands.Choice(name='3 – 2 (Close Call)',  value='3-2'),
 ])
+@app_commands.autocomplete(challenger=autocomplete_ranked_players, defender=autocomplete_ranked_players)
 async def slash_ascension(interaction: discord.Interaction, challenger: str, defender: str, score: app_commands.Choice[str]):
     await interaction.response.defer()
     if not await check_permission(interaction, 'ascension'): return
@@ -1474,6 +1535,7 @@ async def slash_leaderboard(interaction: discord.Interaction):
 
 @bot.tree.command(name='sethandle', description='Set a player Discord handle')
 @app_commands.describe(name='Player name', handle='Discord handle', flag='Country flag emoji')
+@app_commands.autocomplete(name=autocomplete_all_players)
 async def slash_sethandle(interaction: discord.Interaction, name: str, handle: str, flag: str=''):
     await interaction.response.defer()
     if not await check_permission(interaction, 'sethandle'): return
@@ -1650,7 +1712,7 @@ async def _log_pvp(ctx, winner, loser, score, league='TP'):
         await _send(ctx,f'✅ **Match logged!**\n🏆 **{winner}** `{w["rank"]}`{re_w} **+{earn}pts**  def.  **{loser}** `{l["rank"]}`{re_l} **−{lose}pts**\n📊 Score: **{score.replace("-"," – ")}**  ·  {dt}{god_event}{promote_event}')
         asyncio.create_task(update_all_posts(guild))
 
-async def _add_member(ctx, name, rank='F', flag='', handle='', role=''):
+async def _add_member(ctx, name, rank='F', flag='', handle='', role='', in_tp=False, in_rs=False):
     if rank not in RANKS:
         await _send(ctx,f'❌ Invalid rank. Options: {", ".join(RANKS)}'); return
     key=name.lower()
@@ -1667,9 +1729,10 @@ async def _add_member(ctx, name, rank='F', flag='', handle='', role=''):
             return
         await _send(ctx,f'❌ **{name}** already exists.'); return
     jo=await get_next_join_order()
-    await sb_upsert('players',[{'key':key,'name':name,'wins':0,'losses':0,'streak':0,'rank':rank,'points':0,'start_points':0,'discord_handle':handle,'flag':flag,'discord_role':role,'join_order':jo,'unranked':False,'in_tp':False,'in_rs':False,'rs_rank':'F','rs_points':0,'rs_wins':0,'rs_losses':0,'rs_streak':0,'rs_start_points':0,'rs_unranked':False}])
+    await sb_upsert('players',[{'key':key,'name':name,'wins':0,'losses':0,'streak':0,'rank':rank,'points':0,'start_points':0,'discord_handle':handle,'flag':flag,'discord_role':role,'join_order':jo,'unranked':False,'in_tp':in_tp,'in_rs':in_rs,'rs_rank':'F','rs_points':0,'rs_wins':0,'rs_losses':0,'rs_streak':0,'rs_start_points':0,'rs_unranked':False}])
     re=RANK_EMOJI.get(rank,'')
-    await _send(ctx,f'✅ **{name}** {flag} added as **{rank} Rank** {re}!')
+    league_note = ' (TP)' if in_tp and not in_rs else ' (RS)' if in_rs and not in_tp else ' (TP + RS)' if in_tp and in_rs else ''
+    await _send(ctx,f'✅ **{name}** {flag} added as **{rank} Rank** {re}{league_note}!')
     guild=_guild(ctx)
     if guild and handle: await update_discord_role(guild,handle,rank,role,unranked=False)
     asyncio.create_task(update_all_posts(guild))
@@ -1827,6 +1890,7 @@ async def slash_challenge(interaction: discord.Interaction, name: str, league: a
 
 @bot.tree.command(name='accept', description='Accept a pending challenge against you')
 @app_commands.describe(challenger='Name of the player who challenged you')
+@app_commands.autocomplete(challenger=autocomplete_my_challengers)
 async def slash_accept(interaction: discord.Interaction, challenger: str):
     await interaction.response.defer()
     if not await check_permission(interaction, 'accept'): return
@@ -1865,6 +1929,7 @@ async def slash_accept(interaction: discord.Interaction, challenger: str):
 
 @bot.tree.command(name='decline', description='Decline a pending challenge against you')
 @app_commands.describe(challenger='Name of the player who challenged you')
+@app_commands.autocomplete(challenger=autocomplete_my_challengers)
 async def slash_decline(interaction: discord.Interaction, challenger: str):
     await interaction.response.defer()
     if not await check_permission(interaction, 'decline'): return
