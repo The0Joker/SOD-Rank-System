@@ -1802,10 +1802,21 @@ async def slash_challenge(interaction: discord.Interaction, name: str, league: a
     league_label = f'[{league_val}] ' if league_val else ''
     re_c = RANK_EMOJI.get(crank, '')
     re_d = RANK_EMOJI.get(drank, '')
-    defender_mention = fmt_handle(defender.get('discord_handle', ''), interaction.guild) or defender['name']
+
+    # Resolve defender's Discord member for a real ping (case-insensitive)
+    d_handle = (defender.get('discord_handle') or '').lstrip('@').lower()
+    defender_member = None
+    if d_handle and interaction.guild:
+        defender_member = discord.utils.find(
+            lambda m: m.name.lower() == d_handle
+                   or (m.nick and m.nick.lower() == d_handle)
+                   or str(m).lower() == d_handle,
+            interaction.guild.members)
+
+    defender_display = defender_member.mention if defender_member else (fmt_handle(defender.get('discord_handle', ''), interaction.guild) or defender['name'])
     log_ch = bot.get_channel(LOG_CHANNEL_ID)
     msg = (f'⚔️ **{league_label}Challenge issued!**\n'
-           f'**{challenger["name"]}** `{crank}`{re_c} → {defender_mention} `{drank}`{re_d}\n'
+           f'**{challenger["name"]}** `{crank}`{re_c} → {defender_display} `{drank}`{re_d}\n'
            f'{defender["name"]} has **7 days** to `/accept` or `/decline`. '
            f'No response = forfeit (**−{forfeit_points_loss(crank, drank)}pts**).')
     await interaction.followup.send(msg)
