@@ -242,6 +242,28 @@ select option{background:var(--bg2);color:var(--tx);}
 .league-toggle-label:hover{border-color:var(--br2);background:var(--purple-dim);color:var(--tx);}
 .league-toggle:checked+.league-toggle-label{background:var(--grad-dim);border-color:var(--br2);color:var(--tx);box-shadow:var(--glow);}
 
+/* ── Login screen ── */
+#login-screen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999;padding:24px;transition:opacity .35s;}
+#login-screen.hide{opacity:0;pointer-events:none;}
+.login-card{background:rgba(255,255,255,.04);border:1px solid var(--br2);border-radius:20px;padding:44px 40px 36px;max-width:380px;width:100%;text-align:center;box-shadow:0 0 80px rgba(139,92,246,.18),0 0 0 1px rgba(139,92,246,.08);backdrop-filter:blur(20px);position:relative;overflow:hidden;}
+.login-card::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 0%,rgba(139,92,246,.12),transparent 70%);pointer-events:none;}
+.login-icon{font-size:44px;line-height:1;margin-bottom:14px;filter:drop-shadow(0 0 18px rgba(139,92,246,.5));}
+.login-title{font-size:22px;font-weight:800;background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;letter-spacing:-.4px;margin-bottom:4px;}
+.login-sub{font-size:13px;color:var(--tx2);margin-bottom:24px;letter-spacing:.2px;}
+.login-badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;padding:4px 12px;border-radius:20px;background:rgba(139,92,246,.12);color:var(--purple);border:1px solid var(--br2);margin-bottom:28px;letter-spacing:.3px;}
+.login-input-wrap{position:relative;margin-bottom:14px;}
+.login-input-wrap input{width:100%;padding:12px 44px 12px 16px;font-size:15px;border:1px solid var(--br2);border-radius:var(--r);background:rgba(255,255,255,.05);color:var(--tx);outline:none;transition:border-color .15s,box-shadow .15s;text-align:center;letter-spacing:.08em;height:auto;}
+.login-input-wrap input:focus{border-color:var(--purple);box-shadow:0 0 0 3px rgba(139,92,246,.18);}
+.login-input-wrap input::placeholder{color:var(--tx3);letter-spacing:0;}
+.login-eye{position:absolute;right:13px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--tx3);font-size:16px;padding:0;line-height:1;transition:color .15s;}
+.login-eye:hover{color:var(--tx2);}
+.login-btn{width:100%;padding:13px;font-size:15px;font-weight:700;background:var(--grad);border:none;border-radius:var(--r);color:#fff;cursor:pointer;transition:all .15s;box-shadow:0 4px 20px rgba(139,92,246,.35);letter-spacing:.2px;margin-bottom:14px;}
+.login-btn:hover{box-shadow:0 4px 28px rgba(139,92,246,.55);transform:translateY(-1px);}
+.login-btn:active{transform:none;}
+.login-err{font-size:13px;color:var(--txd);min-height:20px;font-weight:600;}
+@keyframes login-shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
+.login-shake{animation:login-shake .4s ease;}
+
 /* ── Clean form layout ── */
 .form-fields{display:flex;flex-direction:column;gap:12px;margin:16px 0 20px;}
 .form-row{display:grid;gap:12px;}
@@ -260,6 +282,23 @@ select option{background:var(--bg2);color:var(--tx);}
 </style>
 </head>
 <body>
+
+<!-- LOGIN SCREEN -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-icon">⚔️</div>
+    <div class="login-title">Ninja Tycoon</div>
+    <div class="login-sub">SOD Clan PvP Tracker</div>
+    <div class="login-badge">🔒 Admin Access</div>
+    <div class="login-input-wrap">
+      <input type="password" id="login-pass" placeholder="Enter password" autocomplete="current-password" />
+      <button class="login-eye" id="login-eye-btn" tabindex="-1" onclick="toggleLoginEye()">👁</button>
+    </div>
+    <button class="login-btn" onclick="doLogin()">Enter Tracker</button>
+    <div class="login-err" id="login-err"></div>
+  </div>
+</div>
+
 <div class="page">
 
 <div class="hdr">
@@ -680,20 +719,36 @@ select option{background:var(--bg2);color:var(--tx);}
 </div>
 <script>
 // ── PASSWORD GATE ─────────────────────────────────────────────────────────────
+const _PASS='SOD2024', _AUTH_KEY='sod_auth';
 (function(){
-  const PASS='SOD2024';
-  const KEY='sod_auth';
-  if(sessionStorage.getItem(KEY)==='1')return;
-  document.body.style.display='none';
-  const entered=prompt('🔒 Enter password to access the tracker:');
-  if(entered===PASS){
-    sessionStorage.setItem(KEY,'1');
-    document.body.style.display='';
-  }else{
-    document.body.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;font-size:15px;color:#64748b;">❌ Incorrect password.</div>';
-    document.body.style.display='';
-  }
+  const screen=document.getElementById('login-screen');
+  if(sessionStorage.getItem(_AUTH_KEY)==='1'){screen.style.display='none';return;}
+  document.getElementById('login-pass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
+  setTimeout(()=>document.getElementById('login-pass').focus(),80);
 })();
+function doLogin(){
+  const val=document.getElementById('login-pass').value;
+  const err=document.getElementById('login-err');
+  err.textContent='';
+  if(val===_PASS){
+    sessionStorage.setItem(_AUTH_KEY,'1');
+    const screen=document.getElementById('login-screen');
+    screen.classList.add('hide');
+    setTimeout(()=>screen.style.display='none',360);
+  }else{
+    err.textContent='❌ Incorrect password';
+    document.getElementById('login-pass').value='';
+    document.getElementById('login-pass').focus();
+    const card=document.querySelector('.login-card');
+    card.classList.remove('login-shake');
+    void card.offsetWidth;
+    card.classList.add('login-shake');
+  }
+}
+function toggleLoginEye(){
+  const inp=document.getElementById('login-pass');
+  inp.type=inp.type==='password'?'text':'password';
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SB_URL='https://fzwurrdfvcrpnhbtashl.supabase.co';
