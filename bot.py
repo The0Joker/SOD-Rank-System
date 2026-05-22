@@ -1280,38 +1280,50 @@ async def slash_unrank(interaction: discord.Interaction, name: str, league: app_
     if not await check_permission(interaction, 'unrank'): return
     league_val = league.value
     key = name.lower()
-    players = await sb_get('players', f'key=eq.{key}')
+    try:
+        players = await sb_get('players', f'key=eq.{key}')
+    except Exception as e:
+        await interaction.followup.send(f'❌ DB error: {e}'); return
     if not players:
-        await interaction.followup.send(f'❌ **{name}** not found.'); return
+        await interaction.followup.send(f'❌ **{name}** not found in roster.'); return
     p = players[0]
     guild = interaction.guild
     done = []
-    if league_val in ('TP', 'both'):
-        if not p.get('in_tp', True):
-            if league_val == 'TP':
-                await interaction.followup.send(f'ℹ️ **{name}** is not in True Power.'); return
-        else:
-            await sb_patch('players', f'key=eq.{key}', {'unranked': True})
-            if guild and p.get('discord_handle'):
-                asyncio.create_task(update_discord_role(guild, p.get('discord_handle', ''), p.get('rank', 'F'), p.get('discord_role', ''), unranked=True))
-            done.append('TP')
-    if league_val in ('RS', 'both'):
-        if not p.get('in_rs', False):
-            if league_val == 'RS':
-                await interaction.followup.send(f'ℹ️ **{name}** is not in Ranked Style.'); return
-        else:
-            await sb_patch('players', f'key=eq.{key}', {'rs_unranked': True})
-            if guild and p.get('discord_handle'):
-                async def _remove_rs_roles():
-                    member = await find_member(guild, p.get('discord_handle', ''))
-                    if member:
-                        for rn in RS_ROLE_NAMES.values():
-                            r = find_guild_role(guild, rn)
-                            if r and r in member.roles:
-                                await _add_role_with_retry(member, r, 'remove')
-                asyncio.create_task(_remove_rs_roles())
-            asyncio.create_task(update_elite(guild))
-            done.append('RS')
+    try:
+        if league_val in ('TP', 'both'):
+            # Allow unrank even if in_tp flag is missing/False — check if they have TP stats
+            in_tp = p.get('in_tp', True) or p.get('rank') or p.get('wins', 0) > 0
+            if not in_tp:
+                if league_val == 'TP':
+                    await interaction.followup.send(f'ℹ️ **{name}** is not in True Power.'); return
+            else:
+                await sb_patch('players', f'key=eq.{key}', {'unranked': True})
+                if guild and p.get('discord_handle'):
+                    asyncio.create_task(update_discord_role(guild, p.get('discord_handle', ''), p.get('rank', 'F'), p.get('discord_role', ''), unranked=True))
+                done.append('TP')
+
+        if league_val in ('RS', 'both'):
+            # Allow unrank even if in_rs flag is missing — check if they have RS stats
+            in_rs = p.get('in_rs', False) or p.get('rs_wins', 0) > 0 or p.get('rs_points', 0) > 0
+            if not in_rs:
+                if league_val == 'RS':
+                    await interaction.followup.send(f'ℹ️ **{name}** has no RS stats.'); return
+            else:
+                await sb_patch('players', f'key=eq.{key}', {'rs_unranked': True, 'in_rs': True})
+                if guild and p.get('discord_handle'):
+                    async def _remove_rs_roles():
+                        member = await find_member(guild, p.get('discord_handle', ''))
+                        if member:
+                            for rn in RS_ROLE_NAMES.values():
+                                r = find_guild_role(guild, rn)
+                                if r and r in member.roles:
+                                    await _add_role_with_retry(member, r, 'remove')
+                    asyncio.create_task(_remove_rs_roles())
+                asyncio.create_task(update_elite(guild))
+                done.append('RS')
+    except Exception as e:
+        await interaction.followup.send(f'❌ Error unranking **{name}**: {e}'); return
+
     if not done:
         await interaction.followup.send(f'ℹ️ **{name}** was not active in the selected league(s).'); return
     leagues_str = ' and '.join(done)
@@ -1522,9 +1534,17 @@ async def slash_sync(interaction: discord.Interaction):
     await interaction.response.defer()
     if not await check_permission(interaction, 'sync'): return
     guild = interaction.guild
-    asyncio.create_task(enforce_roles(guild))
-    asyncio.create_task(update_all_posts(guild))
-    await interaction.followup.send('✅ Sync started — roles and posts are updating in the background.')
+    await interaction.followup.send('🔄 Sync in progress — roles and posts are updating...')
+
+    async def _do_sync():
+        try:
+            await enforce_roles(guild)
+            await update_all_posts(guild)
+            await interaction.followup.send('✅ Sync complete! Roles and posts have been updated.')
+        except Exception as e:
+            await interaction.followup.send(f'⚠️ Sync finished with an error: {e}')
+
+    asyncio.create_task(_do_sync())
 
 @bot.tree.command(name='leaderboard', description='Refresh leaderboard posts')
 async def slash_leaderboard(interaction: discord.Interaction):
