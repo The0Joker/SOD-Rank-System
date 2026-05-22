@@ -877,6 +877,33 @@ async def self_ping():
         except Exception as e:
             print(f'[self_ping] error: {e}')
 
+async def manual_edit_sync_watcher():
+    """Poll settings table every 60s for a manual rank edit, then fix Discord role."""
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        await asyncio.sleep(60)
+        try:
+            rows = await sb_get('settings', 'key=eq.role_sync_player')
+            if not rows or not rows[0].get('value'):
+                continue
+            player_key = rows[0]['value']
+            await sb_patch('settings', 'key=eq.role_sync_player', {'value': ''})
+            players = await sb_get('players', f'key=eq.{player_key}')
+            if not players:
+                continue
+            p = players[0]
+            guild = next(iter(bot.guilds), None)
+            if guild and p.get('discord_handle'):
+                await update_discord_role(
+                    guild, p['discord_handle'],
+                    p.get('rank', 'F'), p.get('discord_role', ''),
+                    unranked=bool(p.get('unranked', False))
+                )
+                await update_all_posts(guild)
+                print(f'[manual_edit_sync] synced role for {player_key} → {p.get("rank","F")}')
+        except Exception as e:
+            print(f'[manual_edit_sync] error: {e}')
+
 # ── BOT SETUP ─────────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
 intents.message_content = True
@@ -936,6 +963,7 @@ async def on_ready():
     asyncio.create_task(challenge_expiry_loop())
     asyncio.create_task(self_ping())
     asyncio.create_task(periodic_role_sync())
+    asyncio.create_task(manual_edit_sync_watcher())
 
 # ── CHALLENGE EXPIRY SCHEDULER ────────────────────────────────────────────────
 async def challenge_expiry_loop():
