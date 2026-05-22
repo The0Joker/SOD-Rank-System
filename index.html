@@ -295,8 +295,8 @@ select option{background:var(--bg2);color:var(--tx);}
     <p id="modal-desc">Choose how you want to remove this member.</p>
     <div class="modal-actions">
       <button class="modal-btn" onclick="confirmUnrank()">
-        <span class="modal-btn-title">📋 Remove from leaderboard only</span>
-        <span class="modal-btn-desc">Keeps them in the roster as Unranked. Stats hidden from leaderboard. Can be re-added later.</span>
+        <span class="modal-btn-title" id="modal-unrank-title">📋 Remove from leaderboard only</span>
+        <span class="modal-btn-desc" id="modal-unrank-desc">Keeps them in the roster as Unranked. Stats hidden from leaderboard. Can be re-added later.</span>
       </button>
       <button class="modal-btn modal-danger" onclick="confirmDelete()">
         <span class="modal-btn-title">🚫 Kick from clan</span>
@@ -859,10 +859,10 @@ async function addMember(){
   }catch(e){msg.className='msg err';msg.textContent='Error: '+e.message;}
 }
 
-function openDeleteModal(key){const p=DB.players[key];if(!p)return;pendingDeleteKey=key;document.getElementById('modal-title').textContent='Remove '+p.name;document.getElementById('modal-desc').textContent='How would you like to remove '+p.name+' from the tracker?';document.getElementById('delete-modal').classList.add('open');}
+function openDeleteModal(key){const p=DB.players[key];if(!p)return;pendingDeleteKey=key;const isRS=currentLeague==='RS';document.getElementById('modal-title').textContent='Remove '+p.name+(isRS?' from RS':'');document.getElementById('modal-desc').textContent='How would you like to remove '+p.name+(isRS?' from RS':'')+' from the tracker?';document.getElementById('modal-unrank-title').textContent=isRS?'📋 Remove from RS leaderboard only':'📋 Remove from leaderboard only';document.getElementById('modal-unrank-desc').textContent=isRS?'Hides them from the RS leaderboard. RS stats are kept. Can be restored later with /rerank.':'Keeps them in the roster as Unranked. Stats hidden from leaderboard. Can be re-added later.';document.getElementById('delete-modal').classList.add('open');}
 function closeDeleteModal(){document.getElementById('delete-modal').classList.remove('open');pendingDeleteKey=null;}
 function closeModal(e){if(e.target===document.getElementById('delete-modal'))closeDeleteModal();}
-async function confirmUnrank(){const key=pendingDeleteKey;closeDeleteModal();if(!key)return;try{await sbPatch('players','key=eq.'+key,{unranked:true});await loadAll();}catch(e){alert('Error: '+e.message);}}
+async function confirmUnrank(){const key=pendingDeleteKey;closeDeleteModal();if(!key)return;try{if(currentLeague==='RS'){await sbPatch('players','key=eq.'+key,{rs_unranked:true,in_rs:true});}else{await sbPatch('players','key=eq.'+key,{unranked:true});}await loadAll();}catch(e){alert('Error: '+e.message);}}
 async function confirmDelete(){const key=pendingDeleteKey;closeDeleteModal();if(!key)return;try{await sbDelete('players','key=eq.'+key);await loadAll();}catch(e){alert('Error: '+e.message);}}
 async function reAddToLeaderboard(key,newRank){const p=DB.players[key];if(!p)return;const rank=newRank||p.rank;try{await sbPatch('players','key=eq.'+key,{unranked:false,rank});const msg=document.getElementById('r-msg');msg.className='msg ok';msg.textContent=p.name+' re-added to leaderboard as '+rank+'!';await loadAll();}catch(e){alert('Error: '+e.message);}}
 async function movePlayer(key,dir){const ps=sortedRoster();const idx=ps.findIndex(p=>p.key===key);if(idx===-1)return;const swapIdx=idx+dir;if(swapIdx<0||swapIdx>=ps.length)return;const a=ps[idx],b=ps[swapIdx];const tmpOrder=a.join_order;try{await sbPatch('players','key=eq.'+a.key,{join_order:b.join_order});await sbPatch('players','key=eq.'+b.key,{join_order:tmpOrder});await loadAll();}catch(e){alert('Error: '+e.message);}}
