@@ -529,12 +529,11 @@ async def update_discord_role(guild, discord_handle, new_rank, discord_role='', 
     member = await find_member(guild, discord_handle)
     if not member:
         return
-    # Remove all rank roles the member currently holds
+    # Remove all rank roles the member currently holds (best-effort, don't abort on failure)
     rank_roles = [find_guild_role(guild, n) for n in ROLE_NAMES.values()]
     rank_roles = [r for r in rank_roles if r and r in member.roles]
     for role in rank_roles:
-        if not await _add_role_with_retry(member, role, 'remove'):
-            return  # stop if we hit a 403 (hierarchy/permission issue)
+        await _add_role_with_retry(member, role, 'remove')
     # Assign new rank role
     if not unranked:
         new_role = find_guild_role(guild, ROLE_NAMES.get(new_rank, ''))
@@ -1567,6 +1566,7 @@ async def slash_sync(interaction: discord.Interaction):
     async def _do_sync():
         try:
             await enforce_roles(guild)
+            await sync_all_roles(guild)
             await update_all_posts(guild)
             await interaction.followup.send('✅ Sync complete! Roles and posts have been updated.')
         except Exception as e:
@@ -1782,7 +1782,18 @@ async def _add_member(ctx, name, rank='F', flag='', handle='', role='', in_tp=Fa
     league_note = ' (TP)' if in_tp and not in_rs else ' (RS)' if in_rs and not in_tp else ' (TP + RS)' if in_tp and in_rs else ''
     await _send(ctx,f'✅ **{name}** {flag} added as **{rank} Rank** {re}{league_note}!')
     guild=_guild(ctx)
-    if guild and handle: await update_discord_role(guild,handle,rank,role,unranked=False)
+    if guild and handle:
+        await update_discord_role(guild, handle, rank, role, unranked=False)
+        member = await find_member(guild, handle)
+        if member:
+            if in_tp:
+                tp_base = find_guild_role(guild, TRUE_POWER_ROLE)
+                if tp_base and tp_base not in member.roles:
+                    await _add_role_with_retry(member, tp_base, 'add')
+            if in_rs:
+                rs_base = find_guild_role(guild, RANKED_STYLE_ROLE)
+                if rs_base and rs_base not in member.roles:
+                    await _add_role_with_retry(member, rs_base, 'add')
     asyncio.create_task(update_all_posts(guild))
 
 async def _remove_member(ctx, name):
