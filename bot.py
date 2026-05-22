@@ -1293,7 +1293,7 @@ async def slash_unrank(interaction: discord.Interaction, name: str, league: app_
         else:
             await sb_patch('players', f'key=eq.{key}', {'unranked': True})
             if guild and p.get('discord_handle'):
-                await update_discord_role(guild, p.get('discord_handle', ''), p.get('rank', 'F'), p.get('discord_role', ''), unranked=True)
+                asyncio.create_task(update_discord_role(guild, p.get('discord_handle', ''), p.get('rank', 'F'), p.get('discord_role', ''), unranked=True))
             done.append('TP')
     if league_val in ('RS', 'both'):
         if not p.get('in_rs', False):
@@ -1302,12 +1302,14 @@ async def slash_unrank(interaction: discord.Interaction, name: str, league: app_
         else:
             await sb_patch('players', f'key=eq.{key}', {'rs_unranked': True})
             if guild and p.get('discord_handle'):
-                member = await find_member(guild, p.get('discord_handle', ''))
-                if member:
-                    for rn in RS_ROLE_NAMES.values():
-                        r = find_guild_role(guild, rn)
-                        if r and r in member.roles:
-                            await _add_role_with_retry(member, r, 'remove')
+                async def _remove_rs_roles():
+                    member = await find_member(guild, p.get('discord_handle', ''))
+                    if member:
+                        for rn in RS_ROLE_NAMES.values():
+                            r = find_guild_role(guild, rn)
+                            if r and r in member.roles:
+                                await _add_role_with_retry(member, r, 'remove')
+                asyncio.create_task(_remove_rs_roles())
             asyncio.create_task(update_elite(guild))
             done.append('RS')
     if not done:
@@ -1519,10 +1521,10 @@ async def slash_ascension(interaction: discord.Interaction, challenger: str, def
 async def slash_sync(interaction: discord.Interaction):
     await interaction.response.defer()
     if not await check_permission(interaction, 'sync'): return
-    await interaction.followup.send('🔄 Enforcing roles from index and rebuilding posts…')
     guild = interaction.guild
-    await enforce_roles(guild)
+    asyncio.create_task(enforce_roles(guild))
     asyncio.create_task(update_all_posts(guild))
+    await interaction.followup.send('✅ Sync started — roles and posts are updating in the background.')
 
 @bot.tree.command(name='leaderboard', description='Refresh leaderboard posts')
 async def slash_leaderboard(interaction: discord.Interaction):
