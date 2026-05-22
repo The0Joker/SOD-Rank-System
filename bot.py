@@ -556,16 +556,18 @@ async def update_discord_rs_role(guild, discord_handle, new_rs_rank, unranked=Fa
     if not discord_handle or not guild: return
     member = await find_member(guild, discord_handle)
     if not member: return
-    # Remove all RS rank roles
+    # Remove all RS rank roles (best-effort)
     rs_rank_roles = [find_guild_role(guild, n) for n in RS_ROLE_NAMES.values()]
     rs_rank_roles = [r for r in rs_rank_roles if r and r in member.roles]
     for role in rs_rank_roles:
-        if not await _add_role_with_retry(member, role, 'remove'):
-            return
-    # Ensure Ranked Style role
+        await _add_role_with_retry(member, role, 'remove')
+    # Ranked Style base role: only active (non-unranked) RS members keep it
     rs_base = find_guild_role(guild, RANKED_STYLE_ROLE)
-    if rs_base and rs_base not in member.roles:
-        await _add_role_with_retry(member, rs_base, 'add')
+    if rs_base:
+        if unranked and rs_base in member.roles:
+            await _add_role_with_retry(member, rs_base, 'remove')
+        elif not unranked and rs_base not in member.roles:
+            await _add_role_with_retry(member, rs_base, 'add')
     # Assign new RS rank role
     if not unranked:
         new_role = find_guild_role(guild, RS_ROLE_NAMES.get(new_rs_rank, ''))
@@ -591,6 +593,115 @@ async def sync_all_rs_roles(guild):
         except Exception as e:
             print(f'[sync_all_rs_roles] ERROR on {p.get("name")}: {e}')
     print('[sync_all_rs_roles] done')
+
+async def full_role_sync(guild):
+    """DB is the source of truth. Sets every player's Discord roles to exactly match."""
+    if not guild: return
+    players = await sb_get('players', 'select=*')
+
+    # Resolve all managed roles once
+    tp_role    = find_guild_role(guild, TRUE_POWER_ROLE)
+    rs_role    = find_guild_role(guild, RANKED_STYLE_ROLE)
+    elite_role = find_guild_role(guild, ELITE_RS_ROLE)
+    tp_rank_map = {rank: find_guild_role(guild, rname) for rank, rname in ROLE_NAMES.items()}
+    rs_rank_map = {rank: find_guild_role(guild, rname) for rank, rname in RS_ROLE_NAMES.items()}
+    tp_rank_map = {k: v for k, v in tp_rank_map.items() if v}
+    rs_rank_map = {k: v for k, v in rs_rank_map.items() if v}
+    all_tp_rank_roles = set(tp_rank_map.values())
+    all_rs_rank_roles = set(rs_rank_map.values())
+
+    # Pre-fetch all guild members to avoid per-player network calls
+    all_members = []
+    try:
+        async for m in guild.fetch_members(limit=None):
+            all_members.append(m)
+    except Exception as e:
+        print(f'[full_role_sync] fetch_members failed ({e}), using cache')
+        all_members = list(guild.members)
+
+    member_lookup = {}
+    for m in all_members:
+        member_lookup[m.name.lower()] = m
+        if m.nick:
+            member_lookup[m.nick.lower()] = m
+
+    # Track which member IDs are the legitimate elite holder
+    elite_ids = set()
+    for p in players:
+        if p.get('is_elite'):
+            h = (p.get('discord_handle') or '').lstrip('@').lower()
+            m = member_lookup.get(h)
+            if m: elite_ids.add(m.id)
+
+    print(f'[full_role_sync] {len(players)} players, {len(all_members)} guild members')
+
+    for p in players:
+        handle = (p.get('discord_handle') or '').lstrip('@').lower()
+        if not handle:
+            continue
+        member = member_lookup.get(handle)
+        if not member:
+            print(f'[full_role_sync] not found: {p["name"]} ({handle})')
+            continue
+
+        current_ids = {r.id for r in member.roles}
+
+        # Flags — matches exactly what index.html uses
+        in_tp_val = p.get('in_tp')
+        is_tp      = in_tp_val is True or (in_tp_val is None and not p.get('in_rs', False))
+        tp_unranked = bool(p.get('unranked', False))
+        is_rs       = bool(p.get('in_rs', False))
+        rs_unranked = bool(p.get('rs_unranked', False))
+        is_elite    = bool(p.get('is_elite', False))
+
+        # True Power base role: all TP members keep it (even unranked)
+        if tp_role:
+            if is_tp and tp_role.id not in current_ids:
+                await _add_role_with_retry(member, tp_role, 'add')
+            elif not is_tp and tp_role.id in current_ids:
+                await _add_role_with_retry(member, tp_role, 'remove')
+
+        # TP rank role: exactly one if active TP, none if unranked or not in TP
+        target_tp = tp_rank_map.get(p.get('rank', 'F')) if (is_tp and not tp_unranked) else None
+        for role in all_tp_rank_roles:
+            if role == target_tp and role.id not in current_ids:
+                await _add_role_with_retry(member, role, 'add')
+            elif role != target_tp and role.id in current_ids:
+                await _add_role_with_retry(member, role, 'remove')
+
+        # Ranked Style base role: only active (non-unranked) RS members
+        if rs_role:
+            want_rs_base = is_rs and not rs_unranked
+            if want_rs_base and rs_role.id not in current_ids:
+                await _add_role_with_retry(member, rs_role, 'add')
+            elif not want_rs_base and rs_role.id in current_ids:
+                await _add_role_with_retry(member, rs_role, 'remove')
+
+        # RS rank role: exactly one if active RS, none if unranked or not in RS
+        target_rs = rs_rank_map.get(p.get('rs_rank', 'F')) if (is_rs and not rs_unranked) else None
+        for role in all_rs_rank_roles:
+            if role == target_rs and role.id not in current_ids:
+                await _add_role_with_retry(member, role, 'add')
+            elif role != target_rs and role.id in current_ids:
+                await _add_role_with_retry(member, role, 'remove')
+
+        # Elite RS role
+        if elite_role:
+            if is_elite and elite_role.id not in current_ids:
+                await _add_role_with_retry(member, elite_role, 'add')
+            elif not is_elite and elite_role.id in current_ids:
+                await _add_role_with_retry(member, elite_role, 'remove')
+
+        await asyncio.sleep(0.3)
+
+    # Strip Elite RS from anyone in guild who isn't the DB elite holder
+    if elite_role:
+        for member in all_members:
+            if elite_role in member.roles and member.id not in elite_ids:
+                print(f'[full_role_sync] stripping Elite RS from {member.name}')
+                await _add_role_with_retry(member, elite_role, 'remove')
+
+    print('[full_role_sync] done')
 
 async def update_elite(guild):
     """Update Elite RS title after any RS stat change."""
@@ -910,28 +1021,16 @@ intents.members = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 async def periodic_role_sync():
-    """Every 20 minutes: read Discord roles → patch DB → sync rank roles → rebuild posts."""
+    """Every 20 minutes: full role sync + rebuild all posts."""
     await bot.wait_until_ready()
     await asyncio.sleep(120)  # let startup settle first
     while not bot.is_closed():
         try:
             guild = next(iter(bot.guilds), None)
             if guild:
-                print('[periodic_sync] reading admin roles from guild...')
-                role_changed = await sync_discord_roles_from_guild(guild)
-                print('[periodic_sync] syncing rank roles...')
-                await sync_all_roles(guild)
-                print('[periodic_sync] enforcing base roles and Elite RS...')
-                await enforce_roles(guild)
-                if role_changed:
-                    print('[periodic_sync] discord_role change detected — rebuilding posts')
-                    await update_post(MEMBERS_ID, await build_members_post(guild))
-                else:
-                    await update_post(CURRENT_LB_ID,    await build_current_lb(guild))
-                    await update_post(ALLTIME_LB_ID,    await build_alltime_lb(guild))
-                    await update_post(RS_CURRENT_LB_ID, await build_rs_current_lb(guild))
-                    await update_post(RS_ALLTIME_LB_ID, await build_rs_alltime_lb(guild))
-                    await update_post(MEMBERS_ID,       await build_members_post(guild))
+                print('[periodic_sync] running full role sync...')
+                await full_role_sync(guild)
+                await update_all_posts(guild)
         except Exception as e:
             print(f'[periodic_sync] error: {e}')
         await asyncio.sleep(1200)  # every 20 minutes
@@ -1565,8 +1664,7 @@ async def slash_sync(interaction: discord.Interaction):
 
     async def _do_sync():
         try:
-            await enforce_roles(guild)
-            await sync_all_roles(guild)
+            await full_role_sync(guild)
             await update_all_posts(guild)
             await interaction.followup.send('✅ Sync complete! Roles and posts have been updated.')
         except Exception as e:
