@@ -234,7 +234,7 @@ def fmt_handle(handle, guild):
 # ── BUILD POSTS ───────────────────────────────────────────────────────────────
 async def build_current_lb(guild=None):
     players = await sb_get('players', 'order=points.desc')
-    ranked = [p for p in players if not p.get('unranked', False)]
+    ranked = [p for p in players if not p.get('unranked', False) and p.get('in_tp') is not False]
     lines = ['**```Current Leaderboard```**\n']
     groups = []
     for p in ranked:
@@ -276,7 +276,7 @@ async def build_current_lb(guild=None):
 
 async def build_alltime_lb(guild=None):
     players = await sb_get('players', 'order=points.desc')
-    ranked = [p for p in players if not p.get('unranked', False)]
+    ranked = [p for p in players if not p.get('unranked', False) and p.get('in_tp') is not False]
     ranked.sort(key=lambda p: (-rank_idx(p['rank']), -p.get('points', 0)))
     lines = ['**```All Time Leaderboard```**\n']
     groups = []
@@ -1115,19 +1115,26 @@ async def on_member_join(member):
             return
         join_order = await get_next_join_order()
         discord_role = get_player_discord_role(member)
+        # Check if onboarding already assigned a league role during the sleep window
+        tp_role_obj = find_guild_role(member.guild, TRUE_POWER_ROLE)
+        rs_role_obj = find_guild_role(member.guild, RANKED_STYLE_ROLE)
+        member_role_ids = {r.id for r in member.roles}
+        in_tp = bool(tp_role_obj and tp_role_obj.id in member_role_ids)
+        in_rs = bool(rs_role_obj and rs_role_obj.id in member_role_ids)
         await sb_upsert('players', [{
             'key': key, 'name': member.display_name, 'wins': 0, 'losses': 0,
             'streak': 0, 'rank': 'F', 'points': 0, 'start_points': 0,
             'discord_handle': f'@{member.name}', 'flag': '', 'discord_role': discord_role,
             'join_order': join_order, 'unranked': False,
-            'in_tp': False, 'in_rs': False,
+            'in_tp': in_tp, 'in_rs': in_rs,
             'rs_rank': 'F', 'rs_points': 0, 'rs_wins': 0, 'rs_losses': 0,
             'rs_streak': 0, 'rs_start_points': 0, 'rs_unranked': False,
         }])
         log_ch = bot.get_channel(LOG_CHANNEL_ID)
+        league_note = ' (TP)' if in_tp and not in_rs else ' (RS)' if in_rs and not in_tp else ' (TP + RS)' if in_tp and in_rs else ''
         if log_ch:
-            await log_ch.send(f'👋 **{member.display_name}** joined the server and was added to the roster. Awaiting league role assignment.')
-        print(f'[on_member_join] Added {member.name} to roster (no league assigned).')
+            await log_ch.send(f'👋 **{member.display_name}** joined the server and was added to the roster{league_note if league_note else " — awaiting league role assignment"}.')
+        print(f'[on_member_join] Added {member.name} to roster (in_tp={in_tp}, in_rs={in_rs}).')
     except Exception as e:
         print(f'[on_member_join] ERROR for {member.name}: {e}')
 
