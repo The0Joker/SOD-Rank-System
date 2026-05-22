@@ -776,8 +776,6 @@ async def update_all_posts(guild=None):
     await update_post(RS_CURRENT_LB_ID, await build_rs_current_lb(guild))
     await update_post(RS_ALLTIME_LB_ID, await build_rs_alltime_lb(guild))
     await update_post(MEMBERS_ID,       await build_members_post(guild))
-    if guild:
-        await sync_all_roles(guild)
 
 async def enforce_roles(guild):
     """Enforce correct Discord roles for every member:
@@ -1287,7 +1285,8 @@ async def slash_unrank(interaction: discord.Interaction, name: str, league: app_
         await interaction.followup.send(f'❌ **{name}** not found.'); return
     p = players[0]
     guild = interaction.guild
-    if league_val == 'TP' or league_val == 'both':
+    done = []
+    if league_val in ('TP', 'both'):
         if not p.get('in_tp', True):
             if league_val == 'TP':
                 await interaction.followup.send(f'ℹ️ **{name}** is not in True Power.'); return
@@ -1295,14 +1294,14 @@ async def slash_unrank(interaction: discord.Interaction, name: str, league: app_
             await sb_patch('players', f'key=eq.{key}', {'unranked': True})
             if guild and p.get('discord_handle'):
                 await update_discord_role(guild, p.get('discord_handle', ''), p.get('rank', 'F'), p.get('discord_role', ''), unranked=True)
-    if league_val == 'RS' or league_val == 'both':
+            done.append('TP')
+    if league_val in ('RS', 'both'):
         if not p.get('in_rs', False):
             if league_val == 'RS':
                 await interaction.followup.send(f'ℹ️ **{name}** is not in Ranked Style.'); return
         else:
             await sb_patch('players', f'key=eq.{key}', {'rs_unranked': True})
             if guild and p.get('discord_handle'):
-                # Remove RS rank role but keep Ranked Style base role
                 member = await find_member(guild, p.get('discord_handle', ''))
                 if member:
                     for rn in RS_ROLE_NAMES.values():
@@ -1310,12 +1309,11 @@ async def slash_unrank(interaction: discord.Interaction, name: str, league: app_
                         if r and r in member.roles:
                             await _add_role_with_retry(member, r, 'remove')
             asyncio.create_task(update_elite(guild))
-    if league_val == 'both':
-        await interaction.followup.send(f'✅ **{name}** unranked from both leagues.')
-    elif league_val == 'TP':
-        await interaction.followup.send(f'✅ **{name}** removed from True Power leaderboard (Unranked). Use `/rerank` to restore.')
-    else:
-        await interaction.followup.send(f'✅ **{name}** removed from Ranked Style leaderboard (RS Unranked).')
+            done.append('RS')
+    if not done:
+        await interaction.followup.send(f'ℹ️ **{name}** was not active in the selected league(s).'); return
+    leagues_str = ' and '.join(done)
+    await interaction.followup.send(f'✅ **{name}** unranked from **{leagues_str}**. Use `/rerank` to restore.')
     asyncio.create_task(update_all_posts(guild))
 
 @bot.tree.command(name='rerank', description='Re-add an unranked player back to the leaderboard')
