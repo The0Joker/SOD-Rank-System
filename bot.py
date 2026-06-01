@@ -407,7 +407,7 @@ async def build_rs_alltime_lb(guild=None):
 
 async def build_members_post(guild=None):
     players = await sb_get('players', 'order=join_order.asc')
-    role_order = ['Owner', 'High Admin', 'Admin', 'Admin Of The Month', 'Manager']
+    role_order = ['Owner', 'High Admin', 'Admin', 'Admin Of The Month', 'Manager', 'SOD_PVP']
     buckets = {r: [] for r in role_order}
     rest = []
     for p in players:
@@ -419,18 +419,32 @@ async def build_members_post(guild=None):
         ordered += buckets[r]
     ordered += rest
     role_tag_map = {
-        'Owner':            ' (Owner)',
-        'High Admin':       ' (High Admin)',
-        'Admin':            ' (Admin)',
+        'Owner':              ' (Owner)',
+        'High Admin':         ' (High Admin)',
+        'Admin':              ' (Admin)',
         'Admin Of The Month': ' (Admin Of The Month)',
-        'Manager':          ' (Manager)',
+        'Manager':            ' (Manager)',
+        'SOD_PVP':            ' (SOD PVP)',
     }
     lines = []
     for i, p in enumerate(ordered):
-        is_unranked = p.get('unranked', False)
-        rank_e = '' if is_unranked else RANK_EMOJI.get(p['rank'], '')
+        tp_unranked = p.get('unranked', False)
+        rs_unranked = p.get('rs_unranked', False)
+        in_rs = bool(p.get('in_rs', False))
+        in_tp_val = p.get('in_tp')
+        in_tp = in_tp_val is True or (in_tp_val is None and not in_rs)
+
+        rank_e = '' if tp_unranked else RANK_EMOJI.get(p.get('rank', 'F'), '')
         suffix = f' {rank_e}' if rank_e else ''
-        unranked_tag = ' *(Unranked)*' if is_unranked else ''
+
+        if in_tp and in_rs:
+            if tp_unranked and rs_unranked: unranked_tag = ' *(Unranked)*'
+            elif tp_unranked:               unranked_tag = ' *(TP Unranked)*'
+            elif rs_unranked:               unranked_tag = ' *(RS Unranked)*'
+            else:                           unranked_tag = ''
+        else:
+            unranked_tag = ' *(Unranked)*' if (tp_unranked or rs_unranked) else ''
+
         role_tag = role_tag_map.get(p.get('discord_role', ''), '')
         handle = fmt_handle(p.get('discord_handle', ''), guild)
         handle_str = f' {handle}' if handle else ''

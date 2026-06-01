@@ -856,7 +856,7 @@ function canPromote(p){
 }
 function computeRankEligible(p){return canPromote(p)?RANKS[rankIdx(p.rank)+1]:null;}
 
-const ROLE_SORT={'Owner':0,'High Admin':1,'Admin':2,'Admin Of The Month':3,'Manager':4};
+const ROLE_SORT={'Owner':0,'High Admin':1,'Admin':2,'Admin Of The Month':3,'Manager':4,'SOD_PVP':5};
 function sortedRoster(){
   const ps=Object.values(DB.players);
   ps.sort((a,b)=>{
