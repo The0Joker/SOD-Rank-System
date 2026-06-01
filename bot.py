@@ -407,7 +407,7 @@ async def build_rs_alltime_lb(guild=None):
 
 async def build_members_post(guild=None):
     players = await sb_get('players', 'order=join_order.asc')
-    role_order = ['Owner', 'High Admin', 'Admin', 'Admin Of The Month', 'Manager', 'SOD_PVP']
+    role_order = ['Owner', 'High Admin', 'Admin Of The Month', 'Admin', 'Manager', 'SOD_PVP']
     buckets = {r: [] for r in role_order}
     rest = []
     for p in players:
