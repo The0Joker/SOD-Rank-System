@@ -829,6 +829,25 @@ function pointsWin(wr,lr,score){
   return pts;
 }
 function pointsLoss(wr,lr){const gap=rankIdx(wr)-rankIdx(lr);return gap<0?12:gap===0?5:2;}
+function derank(p){
+  if(p.unranked||p.rank==='GOD')return;
+  while(rankIdx(p.rank)>0){if((p.points||0)>=THRESH[p.rank])break;p.rank=RANKS[rankIdx(p.rank)-1];}
+}
+function derankRS(p){
+  if(p.rs_unranked)return;
+  while(rsRankIdx(p.rs_rank||'F')>0){if((p.rs_points||0)>=RS_THRESH[p.rs_rank||'F'])break;p.rs_rank=RS_RANKS[rsRankIdx(p.rs_rank||'F')-1];}
+}
+let _retroDeranksApplied=false;
+async function retroFixDeranks(){
+  if(_retroDeranksApplied)return;_retroDeranksApplied=true;
+  const updates=[];
+  for(const p of Object.values(DB.players)){
+    const or=p.rank,orr=p.rs_rank||'F';
+    derank(p);derankRS(p);
+    if(p.rank!==or||(p.rs_rank||'F')!==orr)updates.push(p);
+  }
+  if(updates.length)await sbUpsert('players',updates);
+}
 function canPromote(p){
   if(p.unranked)return false;
   const ri=rankIdx(p.rank);if(ri>=RANKS.length-1)return false;
@@ -864,6 +883,7 @@ async function loadAll(){
     DB.matches=matches;
     DB.challenges=challenges;
     await applyPendingPromotions();
+    await retroFixDeranks();
     renderAll();
     btn.textContent='✓ Synced';
     setTimeout(()=>{btn.textContent='➳ Sync';},2000);
@@ -972,7 +992,8 @@ async function logMatch(){
     l.rs_losses=(l.rs_losses||0)+1;l.rs_streak=Math.min(0,l.rs_streak||0)-1;l.rs_points=Math.max(0,(l.rs_points||0)-lose);
     let promoteEvent='';
     while(true){const ri=rsRankIdx(w.rs_rank||'F');if(ri>=RS_RANKS.length-1)break;const next=RS_RANKS[ri+1];if((w.rs_points||0)<RS_THRESH[next])break;const old=w.rs_rank;w.rs_rank=next;promoteEvent+=' 🎉 '+p1+' promoted '+old+' → '+next+' (RS)!';}
-    try{await sbUpsert('players',[w,l]);await sbUpsert('matches',[{id:Date.now(),winner:p1,loser:p2,score,date:dt,w_rank:w.rs_rank,l_rank:lr,earn,lose,league:'RS'}]);msg.className='msg ok';msg.textContent='[RS] Logged! '+p1+' +'+earn+'pts def. '+p2+' −'+lose+'pts · '+score.replace('-',' – ')+promoteEvent;document.getElementById('p1').value='';document.getElementById('p2').value='';document.getElementById('matchdate').value='';document.getElementById('match-preview').textContent='';await loadAll();}catch(e){msg.className='msg err';msg.textContent='Error: '+e.message;}
+    let demoteEvent='';while(rsRankIdx(l.rs_rank||'F')>0){if((l.rs_points||0)>=RS_THRESH[l.rs_rank||'F'])break;const old=l.rs_rank;l.rs_rank=RS_RANKS[rsRankIdx(l.rs_rank||'F')-1];demoteEvent+=' ⬇️ '+p2+' de-ranked '+old+' → '+l.rs_rank+' (RS)!';}
+    try{await sbUpsert('players',[w,l]);await sbUpsert('matches',[{id:Date.now(),winner:p1,loser:p2,score,date:dt,w_rank:w.rs_rank,l_rank:lr,earn,lose,league:'RS'}]);msg.className='msg ok';msg.textContent='[RS] Logged! '+p1+' +'+earn+'pts def. '+p2+' −'+lose+'pts · '+score.replace('-',' – ')+promoteEvent+demoteEvent;document.getElementById('p1').value='';document.getElementById('p2').value='';document.getElementById('matchdate').value='';document.getElementById('match-preview').textContent='';await loadAll();}catch(e){msg.className='msg err';msg.textContent='Error: '+e.message;}
   } else {
     if(w.in_tp===false){msg.className='msg err';msg.textContent=p1+' is not in the True Power league.';return;}
     if(l.in_tp===false){msg.className='msg err';msg.textContent=p2+' is not in the True Power league.';return;}
@@ -986,7 +1007,8 @@ async function logMatch(){
     l.losses++;l.streak=Math.min(0,l.streak)-1;l.points=Math.max(0,(l.points||0)-lose);
     let promoteEvent='';
     if(!godEvent){while(true){const ri=rankIdx(w.rank);if(ri>=RANKS.length-1)break;const next=RANKS[ri+1];if(next==='GOD')break;if((w.points||0)<THRESH[next])break;const old=w.rank;w.rank=next;promoteEvent+=' 🎉 '+p1+' promoted '+old+' → '+next+'!';}}
-    try{await sbUpsert('players',[w,l]);await sbUpsert('matches',[{id:Date.now(),winner:p1,loser:p2,score,date:dt,w_rank:w.rank,l_rank:l.rank,earn,lose,league:'TP'}]);msg.className='msg ok';msg.textContent='Logged! '+p1+' +'+earn+'pts def. '+p2+' −'+lose+'pts · '+score.replace('-',' – ')+godEvent+promoteEvent;document.getElementById('p1').value='';document.getElementById('p2').value='';document.getElementById('matchdate').value='';document.getElementById('match-preview').textContent='';await loadAll();}catch(e){msg.className='msg err';msg.textContent='Error: '+e.message;}
+    let demoteEvent='';if(!godEvent){while(rankIdx(l.rank)>0){if((l.points||0)>=THRESH[l.rank])break;const old=l.rank;l.rank=RANKS[rankIdx(l.rank)-1];demoteEvent+=' ⬇️ '+p2+' de-ranked '+old+' → '+l.rank+'!';}}
+    try{await sbUpsert('players',[w,l]);await sbUpsert('matches',[{id:Date.now(),winner:p1,loser:p2,score,date:dt,w_rank:w.rank,l_rank:l.rank,earn,lose,league:'TP'}]);msg.className='msg ok';msg.textContent='Logged! '+p1+' +'+earn+'pts def. '+p2+' −'+lose+'pts · '+score.replace('-',' – ')+godEvent+promoteEvent+demoteEvent;document.getElementById('p1').value='';document.getElementById('p2').value='';document.getElementById('matchdate').value='';document.getElementById('match-preview').textContent='';await loadAll();}catch(e){msg.className='msg err';msg.textContent='Error: '+e.message;}
   }
 }
 
