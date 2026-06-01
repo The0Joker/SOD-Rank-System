@@ -1167,8 +1167,8 @@ function renderHistory(){
 }
 function renderDatalist(){document.getElementById('plist').innerHTML=Object.values(DB.players).filter(p=>!p.unranked).map(p=>`<option value="${esc(p.name)}">`).join('');}
 function renderAll(){
-  const all=Object.keys(DB.players).length;const ranked=Object.values(DB.players).filter(p=>!p.unranked).length;const unrankedCount=all-ranked;
-  let pill=ranked+' member'+(ranked!==1?'s':'');if(unrankedCount>0)pill+=` · ${unrankedCount} unranked`;
+  const all=Object.keys(DB.players).length;const unrankedCount=Object.values(DB.players).filter(p=>p.unranked||p.rs_unranked).length;const activeCount=all-unrankedCount;
+  let pill=activeCount+' member'+(activeCount!==1?'s':'');if(unrankedCount>0)pill+=` · ${unrankedCount} unranked`;
   document.getElementById('clan-pill').textContent=pill;
   renderGODBanner();renderRoster();renderLB();renderAllTime();renderManualEdit();renderPlayers();renderHistory();renderDatalist();renderChallenges();
 }
