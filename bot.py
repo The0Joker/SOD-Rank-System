@@ -27,6 +27,7 @@ CURRENT_LB_ID  = int(os.environ['CURRENT_LB_ID'])
 ALLTIME_LB_ID  = int(os.environ['ALLTIME_LB_ID'])
 MEMBERS_ID     = int(os.environ['MEMBERS_ID'])
 ROLE_LOG_ID    = int(os.environ.get('ROLE_LOG_ID', '1504206471653621760'))
+SOD_GUILD_ID   = int(os.environ.get('SOD_GUILD_ID', '1456710207026626611'))
 
 HEADERS = {
     'apikey': SUPABASE_KEY,
@@ -1016,7 +1017,7 @@ async def manual_edit_sync_watcher():
             if not players:
                 continue
             p = players[0]
-            guild = next(iter(bot.guilds), None)
+            guild = get_sod_guild()
             if guild and p.get('discord_handle'):
                 await update_discord_role(
                     guild, p['discord_handle'],
@@ -1034,13 +1035,27 @@ intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
+def get_sod_guild():
+    """Always returns the SOD guild specifically, never a random guild."""
+    return bot.get_guild(SOD_GUILD_ID)
+
+@bot.tree.interaction_check
+async def guild_lock(interaction: discord.Interaction) -> bool:
+    if interaction.guild_id != SOD_GUILD_ID:
+        await interaction.response.send_message(
+            '🔒 This bot is private and only operates in the SOD server.',
+            ephemeral=True
+        )
+        return False
+    return True
+
 async def periodic_role_sync():
     """Every 20 minutes: full role sync + rebuild all posts."""
     await bot.wait_until_ready()
     await asyncio.sleep(120)  # let startup settle first
     while not bot.is_closed():
         try:
-            guild = next(iter(bot.guilds), None)
+            guild = get_sod_guild()
             if guild:
                 print('[periodic_sync] running full role sync...')
                 await full_role_sync(guild)
@@ -1060,11 +1075,13 @@ async def on_ready():
     except Exception as e:
         print(f'[settings init] {e}')
     try:
-        synced = await bot.tree.sync()
-        print(f'Synced {len(synced)} slash commands globally')
+        guild_obj = discord.Object(id=SOD_GUILD_ID)
+        bot.tree.copy_global_to(guild=guild_obj)
+        synced = await bot.tree.sync(guild=guild_obj)
+        print(f'Synced {len(synced)} slash commands to SOD guild')
     except Exception as e:
         print(f'Slash sync error: {e}')
-    guild = next(iter(bot.guilds), None)
+    guild = get_sod_guild()
     if guild and not guild.chunked:
         try:
             await guild.chunk()
@@ -1093,9 +1110,7 @@ async def process_expired_challenges():
         f'status=eq.pending&expires_at=lt.{now}')
     if not expired:
         return
-    guild = None
-    for g in bot.guilds:
-        guild = g; break
+    guild = get_sod_guild()
     log_ch = bot.get_channel(LOG_CHANNEL_ID)
     for ch in expired:
         ckey, dkey = ch['challenger_key'], ch['defender_key']
@@ -1120,6 +1135,7 @@ async def process_expired_challenges():
 # ── AUTO MEMBER JOIN ──────────────────────────────────────────────────────────
 @bot.event
 async def on_member_join(member):
+    if member.guild.id != SOD_GUILD_ID: return
     await asyncio.sleep(1)
     key = member.name.lower()
     try:
@@ -1155,6 +1171,7 @@ async def on_member_join(member):
 # ── AUTO MEMBER LEAVE ─────────────────────────────────────────────────────────
 @bot.event
 async def on_member_remove(member):
+    if member.guild.id != SOD_GUILD_ID: return
     # Try current username key first, then fall back to discord_handle match
     # (handles the case where the player changed their username since joining)
     key = member.name.lower()
@@ -1175,6 +1192,8 @@ async def on_member_remove(member):
 @bot.event
 async def on_user_update(before, after):
     if before.name == after.name: return
+    sod = get_sod_guild()
+    if not sod or not sod.get_member(after.id): return
     old_handle = f'@{before.name}'
     new_handle  = f'@{after.name}'
     # Find player by old key or old handle
@@ -1195,6 +1214,7 @@ async def on_user_update(before, after):
 # ── AUTO ROLE SYNC ────────────────────────────────────────────────────────────
 @bot.event
 async def on_member_update(before, after):
+    if after.guild.id != SOD_GUILD_ID: return
     if before.roles == after.roles: return
 
     # Use IDs — role names may have emojis (e.g. "Ranked Style 🥇")
