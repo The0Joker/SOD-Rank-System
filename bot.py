@@ -1075,10 +1075,14 @@ async def on_ready():
     except Exception as e:
         print(f'[settings init] {e}')
     try:
+        # Wipe any previously registered global commands so they don't double up
+        bot.tree.clear_commands(guild=None)
+        await bot.tree.sync()
+        # Register commands for SOD guild only
         guild_obj = discord.Object(id=SOD_GUILD_ID)
         bot.tree.copy_global_to(guild=guild_obj)
         synced = await bot.tree.sync(guild=guild_obj)
-        print(f'Synced {len(synced)} slash commands to SOD guild')
+        print(f'Synced {len(synced)} slash commands to SOD guild (global commands cleared)')
     except Exception as e:
         print(f'Slash sync error: {e}')
     guild = get_sod_guild()
@@ -1136,6 +1140,7 @@ async def process_expired_challenges():
 @bot.event
 async def on_member_join(member):
     if member.guild.id != SOD_GUILD_ID: return
+    if member.bot: return
     await asyncio.sleep(1)
     key = member.name.lower()
     try:
@@ -1172,6 +1177,7 @@ async def on_member_join(member):
 @bot.event
 async def on_member_remove(member):
     if member.guild.id != SOD_GUILD_ID: return
+    if member.bot: return
     # Try current username key first, then fall back to discord_handle match
     # (handles the case where the player changed their username since joining)
     key = member.name.lower()
@@ -1215,6 +1221,7 @@ async def on_user_update(before, after):
 @bot.event
 async def on_member_update(before, after):
     if after.guild.id != SOD_GUILD_ID: return
+    if after.bot: return
     if before.roles == after.roles: return
 
     # Use IDs — role names may have emojis (e.g. "Ranked Style 🥇")
