@@ -1075,14 +1075,14 @@ async def on_ready():
     except Exception as e:
         print(f'[settings init] {e}')
     try:
-        # Wipe any previously registered global commands so they don't double up
-        bot.tree.clear_commands(guild=None)
-        await bot.tree.sync()
-        # Register commands for SOD guild only
         guild_obj = discord.Object(id=SOD_GUILD_ID)
+        # Copy in-memory global commands to guild FIRST, then sync to Discord
         bot.tree.copy_global_to(guild=guild_obj)
         synced = await bot.tree.sync(guild=guild_obj)
-        print(f'Synced {len(synced)} slash commands to SOD guild (global commands cleared)')
+        # Now wipe global commands so they don't show up as duplicates
+        bot.tree.clear_commands(guild=None)
+        await bot.tree.sync()
+        print(f'Synced {len(synced)} slash commands to SOD guild (globals cleared)')
     except Exception as e:
         print(f'Slash sync error: {e}')
     guild = get_sod_guild()
