@@ -549,6 +549,13 @@ async def update_discord_role(guild, discord_handle, new_rank, discord_role='', 
     rank_roles = [r for r in rank_roles if r and r in member.roles]
     for role in rank_roles:
         await _add_role_with_retry(member, role, 'remove')
+    # True Power base role: removed when unranked, restored when active
+    tp_base = find_guild_role(guild, TRUE_POWER_ROLE)
+    if tp_base:
+        if unranked and tp_base in member.roles:
+            await _add_role_with_retry(member, tp_base, 'remove')
+        elif not unranked and tp_base not in member.roles:
+            await _add_role_with_retry(member, tp_base, 'add')
     # Assign new rank role
     if not unranked:
         new_role = find_guild_role(guild, ROLE_NAMES.get(new_rank, ''))
@@ -559,7 +566,7 @@ async def update_discord_role(guild, discord_handle, new_rank, discord_role='', 
             guild_roles = [r.name for r in guild.roles]
             print(f'[role_sync] rank role not found for {new_rank!r} | guild roles: {guild_roles}')
     else:
-        print(f'[role_sync] {member.name} unranked — rank role removed')
+        print(f'[role_sync] {member.name} unranked — TP base + rank role removed')
     # Re-apply admin/owner role if needed
     for role_name in (['Owner'] if discord_role == 'Owner' else ['Admin'] if discord_role == 'Admin' else []):
         r = find_guild_role(guild, role_name)
@@ -669,11 +676,12 @@ async def full_role_sync(guild):
         rs_unranked = bool(p.get('rs_unranked', False))
         is_elite    = bool(p.get('is_elite', False))
 
-        # True Power base role: all TP members keep it (even unranked)
+        # True Power base role: only active (non-unranked) TP members
         if tp_role:
-            if is_tp and tp_role.id not in current_ids:
+            want_tp_base = is_tp and not tp_unranked
+            if want_tp_base and tp_role.id not in current_ids:
                 await _add_role_with_retry(member, tp_role, 'add')
-            elif not is_tp and tp_role.id in current_ids:
+            elif not want_tp_base and tp_role.id in current_ids:
                 await _add_role_with_retry(member, tp_role, 'remove')
 
         # TP rank role: exactly one if active TP, none if unranked or not in TP
