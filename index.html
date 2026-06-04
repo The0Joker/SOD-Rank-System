@@ -221,8 +221,6 @@ select option{background:var(--bg2);color:var(--tx);}
   .sidebar{position:sticky;top:24px;}
   .tabs{flex-direction:column;margin-bottom:10px;gap:3px;}
   .tab{text-align:left;padding:8px 14px;font-size:13px;}
-  .league-bar{flex-direction:column;gap:4px;margin-bottom:0;}
-  .ltab{text-align:left;width:100%;padding:7px 14px;}
   #tab-rules .info-grid{grid-template-columns:repeat(4,1fr);}
   #tab-rules .card{padding:14px 16px;margin-bottom:10px;}
   #tab-rules .info-card{padding:10px 12px;}
@@ -323,11 +321,6 @@ select option{background:var(--bg2);color:var(--tx);}
   <button class="tab" onclick="go('rules')">Rank Rules</button>
   <button class="tab" onclick="go('settings')">⚙ Settings</button>
 </div>
-<div class="sidebar-label">League</div>
-<div class="league-bar">
-  <button class="ltab on" onclick="setLeague('TP')">⚔️ True Power</button>
-  <button class="ltab" onclick="setLeague('RS')">🏅 Ranked Style</button>
-</div>
 </div><!-- end sidebar -->
 <div class="content-area">
 
@@ -337,9 +330,13 @@ select option{background:var(--bg2);color:var(--tx);}
     <h3 id="modal-title">Remove member</h3>
     <p id="modal-desc">Choose how you want to remove this member.</p>
     <div class="modal-actions">
-      <button class="modal-btn" onclick="confirmUnrank()">
-        <span class="modal-btn-title" id="modal-unrank-title">📋 Remove from leaderboard only</span>
-        <span class="modal-btn-desc" id="modal-unrank-desc">Keeps them in the roster as Unranked. Stats hidden from leaderboard. Can be re-added later.</span>
+      <button class="modal-btn" id="modal-unrank-tp-btn" onclick="confirmUnrank('TP')">
+        <span class="modal-btn-title">📋 Remove from TP leaderboard only</span>
+        <span class="modal-btn-desc">Keeps them in the roster as TP Unranked. Stats hidden from leaderboard. Can be re-added later.</span>
+      </button>
+      <button class="modal-btn" id="modal-unrank-rs-btn" onclick="confirmUnrank('RS')" style="display:none">
+        <span class="modal-btn-title">📋 Remove from RS leaderboard only</span>
+        <span class="modal-btn-desc">Hides from RS leaderboard. RS stats kept. Can be restored later with /rerank.</span>
       </button>
       <button class="modal-btn modal-danger" onclick="confirmDelete()">
         <span class="modal-btn-title">🚫 Kick from clan</span>
@@ -560,6 +557,10 @@ select option{background:var(--bg2);color:var(--tx);}
 <!-- LEADERBOARD -->
 <div class="sec" id="tab-lb">
   <div id="god-banner-wrap"></div>
+  <div class="league-bar" style="margin-bottom:10px;">
+    <button class="ltab on" data-league="TP" onclick="setLeague('TP')">⚔️ True Power</button>
+    <button class="ltab" data-league="RS" onclick="setLeague('RS')">🏅 Ranked Style</button>
+  </div>
   <div class="subtabs">
     <button class="stab on" onclick="goSub('current')">Current standings</button>
     <button class="stab" onclick="goSub('alltime')">All-time ranks</button>
@@ -595,6 +596,10 @@ select option{background:var(--bg2);color:var(--tx);}
 
 <!-- PLAYERS -->
 <div class="sec" id="tab-players">
+  <div class="league-bar" style="margin-bottom:10px;">
+    <button class="ltab on" data-league="TP" onclick="setLeague('TP')">⚔️ True Power</button>
+    <button class="ltab" data-league="RS" onclick="setLeague('RS')">🏅 Ranked Style</button>
+  </div>
   <div id="players-body"><div class="empty">Loading…</div></div>
 </div>
 
@@ -797,8 +802,8 @@ function getGOD(){return Object.values(DB.players).find(p=>p.rank==='GOD'&&!p.un
 
 function setLeague(l){
   currentLeague=l;
-  document.querySelectorAll('.ltab').forEach((t,i)=>t.classList.toggle('on',['TP','RS'][i]===l));
-  renderAll();
+  document.querySelectorAll('.ltab[data-league]').forEach(btn=>btn.classList.toggle('on',btn.dataset.league===l));
+  renderLB();renderAllTime();renderPlayers();
 }
 function canPromoteRS(p){
   if(!p.in_rs||p.rs_unranked)return false;
@@ -953,12 +958,31 @@ async function addMember(){
   }catch(e){msg.className='msg err';msg.textContent='Error: '+e.message;}
 }
 
-function openDeleteModal(key){const p=DB.players[key];if(!p)return;pendingDeleteKey=key;const isRS=currentLeague==='RS';document.getElementById('modal-title').textContent='Remove '+p.name+(isRS?' from RS':'');document.getElementById('modal-desc').textContent='How would you like to remove '+p.name+(isRS?' from RS':'')+' from the tracker?';document.getElementById('modal-unrank-title').textContent=isRS?'📋 Remove from RS leaderboard only':'📋 Remove from leaderboard only';document.getElementById('modal-unrank-desc').textContent=isRS?'Hides them from the RS leaderboard. RS stats are kept. Can be restored later with /rerank.':'Keeps them in the roster as Unranked. Stats hidden from leaderboard. Can be re-added later.';document.getElementById('delete-modal').classList.add('open');}
+function openDeleteModal(key){
+  const p=DB.players[key];if(!p)return;pendingDeleteKey=key;
+  const inTP=p.in_tp!==false,inRS=!!p.in_rs;
+  const tpBtn=document.getElementById('modal-unrank-tp-btn');
+  const rsBtn=document.getElementById('modal-unrank-rs-btn');
+  if(inTP&&inRS){
+    tpBtn.style.display='';rsBtn.style.display='';
+    document.getElementById('modal-title').textContent='Remove '+p.name+' from a league';
+    document.getElementById('modal-desc').textContent=p.name+' is in both leagues. Choose which to remove from, or kick entirely.';
+  }else if(inRS){
+    tpBtn.style.display='none';rsBtn.style.display='';
+    document.getElementById('modal-title').textContent='Remove '+p.name+' from RS';
+    document.getElementById('modal-desc').textContent='How would you like to remove '+p.name+'?';
+  }else{
+    tpBtn.style.display='';rsBtn.style.display='none';
+    document.getElementById('modal-title').textContent='Remove '+p.name;
+    document.getElementById('modal-desc').textContent='How would you like to remove '+p.name+'?';
+  }
+  document.getElementById('delete-modal').classList.add('open');
+}
 function closeDeleteModal(){document.getElementById('delete-modal').classList.remove('open');pendingDeleteKey=null;}
 function closeModal(e){if(e.target===document.getElementById('delete-modal'))closeDeleteModal();}
-async function confirmUnrank(){const key=pendingDeleteKey;closeDeleteModal();if(!key)return;try{if(currentLeague==='RS'){await sbPatch('players','key=eq.'+key,{rs_unranked:true,in_rs:true});}else{await sbPatch('players','key=eq.'+key,{unranked:true});}await loadAll();}catch(e){alert('Error: '+e.message);}}
+async function confirmUnrank(league){const key=pendingDeleteKey;closeDeleteModal();if(!key)return;try{if(league==='RS'){await sbPatch('players','key=eq.'+key,{rs_unranked:true,in_rs:true});}else{await sbPatch('players','key=eq.'+key,{unranked:true});}await loadAll();}catch(e){alert('Error: '+e.message);}}
 async function confirmDelete(){const key=pendingDeleteKey;closeDeleteModal();if(!key)return;try{await sbDelete('players','key=eq.'+key);await loadAll();}catch(e){alert('Error: '+e.message);}}
-async function reAddToLeaderboard(key,newRank){const p=DB.players[key];if(!p)return;const rank=newRank||p.rank;try{await sbPatch('players','key=eq.'+key,{unranked:false,rank});const msg=document.getElementById('r-msg');msg.className='msg ok';msg.textContent=p.name+' re-added to leaderboard as '+rank+'!';await loadAll();}catch(e){alert('Error: '+e.message);}}
+async function reAddToLeaderboard(key,newRank){const p=DB.players[key];if(!p)return;const rsOnly=p.in_rs&&p.in_tp===false;try{const msg=document.getElementById('r-msg');if(rsOnly){await sbPatch('players','key=eq.'+key,{rs_unranked:false});msg.className='msg ok';msg.textContent=p.name+' re-added to RS leaderboard!';}else{const rank=newRank||p.rank;await sbPatch('players','key=eq.'+key,{unranked:false,rank});msg.className='msg ok';msg.textContent=p.name+' re-added to leaderboard as '+rank+'!';}await loadAll();}catch(e){alert('Error: '+e.message);}}
 async function movePlayer(key,dir){const ps=sortedRoster();const idx=ps.findIndex(p=>p.key===key);if(idx===-1)return;const swapIdx=idx+dir;if(swapIdx<0||swapIdx>=ps.length)return;const a=ps[idx],b=ps[swapIdx];const tmpOrder=a.join_order;try{await sbPatch('players','key=eq.'+a.key,{join_order:b.join_order});await sbPatch('players','key=eq.'+b.key,{join_order:tmpOrder});await loadAll();}catch(e){alert('Error: '+e.message);}}
 
 let _editKey=null;
@@ -1067,16 +1091,24 @@ function renderGODBanner(){
   else{el.innerHTML=`<div class="god-banner" style="opacity:.6;"><div class="god-crown">🪐</div><div class="god-banner-txt"><h3 class="vacant">No GOD yet</h3><p>Angel-rank players can claim this title.</p></div></div>`;}
 }
 function renderRoster(){
-  const isRS=currentLeague==='RS';
-  let ps=sortedRoster();
-  if(isRS)ps=ps.filter(p=>p.in_rs);
-  if(!ps.length){document.getElementById('roster-body').innerHTML=`<div class="empty">No ${isRS?'RS':'TP'} members yet.</div>`;return;}
+  const ps=sortedRoster();
+  if(!ps.length){document.getElementById('roster-body').innerHTML='<div class="empty">No members yet.</div>';return;}
   document.getElementById('roster-body').innerHTML=ps.map((p,i)=>{
+    const rsOnly=p.in_rs&&p.in_tp===false;
     let wins,losses,pts,rank,isUnranked,rankBadge;
-    if(isRS){wins=p.rs_wins||0;losses=p.rs_losses||0;pts=p.rs_points||0;rank=p.rs_rank||'F';isUnranked=!!p.rs_unranked;rankBadge=isUnranked?`<span class="rb rUnranked">Unranked</span>`:`<span class="rb r${esc(rank)}">${esc(rank)} RS</span>`;}
-    else{wins=p.wins||0;losses=p.losses||0;pts=p.points||0;rank=p.rank||'F';isUnranked=!!p.unranked;rankBadge=isUnranked?`<span class="rb rUnranked">Unranked</span>`:`<span class="rb r${esc(rank)}">${esc(rank)}</span>`;}
+    if(rsOnly){
+      wins=p.rs_wins||0;losses=p.rs_losses||0;pts=p.rs_points||0;rank=p.rs_rank||'F';
+      isUnranked=!!p.rs_unranked;
+      rankBadge=isUnranked?`<span class="rb rUnranked">Unranked</span>`:`<span class="rb r${esc(rank)}">${esc(rank)} RS</span>`;
+    }else{
+      wins=p.wins||0;losses=p.losses||0;pts=p.points||0;rank=p.rank||'F';
+      isUnranked=!!p.unranked;
+      rankBadge=isUnranked?`<span class="rb rUnranked">Unranked</span>`:`<span class="rb r${esc(rank)}">${esc(rank)}</span>`;
+      if(p.in_rs&&!p.rs_unranked)rankBadge+=` <span class="rb r${esc(p.rs_rank||'F')}" style="margin-left:2px;">${esc(p.rs_rank||'F')} RS</span>`;
+    }
     const t=wins+losses,wr=t>0?Math.round(wins/t*100):0;
-    return`<div class="tr roster-tr${isUnranked?' unranked-row':''}">
+    const anyUnranked=!!p.unranked||!!p.rs_unranked;
+    return`<div class="tr roster-tr${anyUnranked?' unranked-row':''}">
       <div style="color:var(--tx3);font-size:12px;text-align:center;">${i+1}</div>
       <div style="font-weight:700;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
         <span>${esc(p.name)} ${p.flag||''}</span>
@@ -1092,7 +1124,7 @@ function renderRoster(){
       <div class="erow">
         <button class="bmove" onclick="movePlayer('${esc(p.key)}',-1)" title="Move up">▲</button>
         <button class="bmove" onclick="movePlayer('${esc(p.key)}',1)" title="Move down">▼</button>
-        ${isUnranked?`<button class="bxs success" onclick="reAddToLeaderboard('${esc(p.key)}')">Re-add</button>`:`<button class="bxs" onclick="editPlayer('${esc(p.key)}')">Edit</button>`}
+        ${anyUnranked?`<button class="bxs success" onclick="reAddToLeaderboard('${esc(p.key)}')">Re-add</button>`:`<button class="bxs" onclick="editPlayer('${esc(p.key)}')">Edit</button>`}
         <button class="bxs danger" onclick="removeMember('${esc(p.key)}')">✕</button>
       </div>
     </div>`;
@@ -1156,6 +1188,11 @@ function renderPlayers(){
     }).join('');
   }
 }
+function leagueTag(league){
+  return league==='RS'
+    ?'<span style="font-size:11px;font-weight:700;padding:2px 6px;border-radius:6px;background:rgba(139,92,246,.15);color:var(--purple);border:1px solid rgba(139,92,246,.25);">RS</span>'
+    :'<span style="font-size:11px;font-weight:700;padding:2px 6px;border-radius:6px;background:rgba(59,130,246,.12);color:var(--txi);border:1px solid rgba(59,130,246,.2);">TP</span>';
+}
 function matchType(score){
   if(score==='3-0')return'<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;background:var(--bg-s);color:var(--txs);border:1px solid rgba(52,211,153,.2);">Clean Sweep</span>';
   if(score==='3-1')return'<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;background:var(--bg-i);color:var(--txi);border:1px solid rgba(96,165,250,.2);">Strong Win</span>';
@@ -1163,7 +1200,7 @@ function matchType(score){
 }
 function renderHistory(){
   if(!DB.matches.length){document.getElementById('hist-body').innerHTML='<div class="empty">No matches yet.</div>';return;}
-  document.getElementById('hist-body').innerHTML=DB.matches.map(m=>`<div class="tr hist-tr"><div style="font-weight:700">${esc(m.winner)}<span style="font-size:11px;color:var(--txs);margin-left:6px;">+${m.earn||'?'}pts</span></div><div style="text-align:center;font-weight:700">${esc(m.score).replace('-',' – ')}</div><div style="color:var(--tx2)">${esc(m.loser)}<span style="font-size:11px;color:var(--txd);margin-left:6px;">−${m.lose||'?'}pts</span></div><div>${matchType(m.score)}</div><div style="font-size:12px;color:var(--tx3)">${esc(m.date)}</div><div class="erow"><button class="bxs" onclick="editMatch(${m.id})">Edit</button><button class="bxs danger" onclick="deleteMatch(${m.id})">Delete</button></div></div>`).join('');
+  document.getElementById('hist-body').innerHTML=DB.matches.map(m=>`<div class="tr hist-tr"><div style="font-weight:700">${esc(m.winner)}<span style="font-size:11px;color:var(--txs);margin-left:6px;">+${m.earn||'?'}pts</span></div><div style="text-align:center;font-weight:700">${esc(m.score).replace('-',' – ')}</div><div style="color:var(--tx2)">${esc(m.loser)}<span style="font-size:11px;color:var(--txd);margin-left:6px;">−${m.lose||'?'}pts</span></div><div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">${leagueTag(m.league||'TP')}${matchType(m.score)}</div><div style="font-size:12px;color:var(--tx3)">${esc(m.date)}</div><div class="erow"><button class="bxs" onclick="editMatch(${m.id})">Edit</button><button class="bxs danger" onclick="deleteMatch(${m.id})">Delete</button></div></div>`).join('');
 }
 function renderDatalist(){document.getElementById('plist').innerHTML=Object.values(DB.players).filter(p=>!p.unranked).map(p=>`<option value="${esc(p.name)}">`).join('');}
 function renderAll(){
