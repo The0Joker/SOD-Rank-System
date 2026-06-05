@@ -1551,16 +1551,15 @@ async def slash_unrank(interaction: discord.Interaction, name: str, league: app_
     asyncio.create_task(update_all_posts(guild))
 
 @bot.tree.command(name='rerank', description='Re-add an unranked player back to the leaderboard')
-@app_commands.describe(name='Player name', league='Which league', rank='New rank to assign (TP only)')
+@app_commands.describe(name='Player name', league='Which league')
 @app_commands.choices(
     league=[
         app_commands.Choice(name='True Power (TP)', value='TP'),
         app_commands.Choice(name='Ranked Style (RS)', value='RS'),
-    ],
-    rank=[app_commands.Choice(name=r, value=r) for r in RANKS]
+    ]
 )
 @app_commands.autocomplete(name=autocomplete_all_players)
-async def slash_rerank(interaction: discord.Interaction, name: str, league: app_commands.Choice[str], rank: app_commands.Choice[str]=None):
+async def slash_rerank(interaction: discord.Interaction, name: str, league: app_commands.Choice[str]):
     await interaction.response.defer()
     if not await check_permission(interaction, 'rerank'): return
     key = name.lower()
@@ -1579,11 +1578,11 @@ async def slash_rerank(interaction: discord.Interaction, name: str, league: app_
     else:
         if not p.get('unranked'):
             await interaction.followup.send(f'❌ **{name}** is not TP-unranked.'); return
-        new_rank = rank.value if rank else p.get('rank', 'F')
-        await sb_patch('players', f'key=eq.{key}', {'unranked': False, 'rank': new_rank})
+        existing_rank = p.get('rank', 'F')
+        await sb_patch('players', f'key=eq.{key}', {'unranked': False})
         if guild:
-            await update_discord_role(guild, p.get('discord_handle',''), new_rank, p.get('discord_role',''), unranked=False)
-        await interaction.followup.send(f'✅ **{name}** re-added to TP leaderboard as **{new_rank} Rank**!')
+            await update_discord_role(guild, p.get('discord_handle',''), existing_rank, p.get('discord_role',''), unranked=False)
+        await interaction.followup.send(f'✅ **{name}** re-added to TP leaderboard at **{existing_rank} Rank**!')
     asyncio.create_task(update_all_posts(guild))
 
 @bot.tree.command(name='joinleague', description='Join a league at F rank with 0 points')

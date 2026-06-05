@@ -944,7 +944,7 @@ async function addMember(){
   if(!name){msg.className='msg err';msg.textContent='Enter a username.';return;}
   const key=name.toLowerCase();
   if(DB.players[key]){
-    if(DB.players[key].unranked){if(confirm(name+' exists as Unranked. Re-add to leaderboard with rank '+rank+'?')){await reAddToLeaderboard(key,rank);return;}return;}
+    if(DB.players[key].unranked){if(confirm(name+' exists as Unranked. Re-add to leaderboard at their existing rank?')){await reAddToLeaderboard(key);return;}return;}
     msg.className='msg err';msg.textContent=name+' already exists.';return;
   }
   if(rank==='GOD'&&getGOD()){msg.className='msg err';msg.textContent='GOD already taken.';return;}
