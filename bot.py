@@ -521,6 +521,8 @@ async def update_post(content: str, post_key: str):
             mid = int(parts[0])
             ch = bot.get_channel(MEMBERS_ID) or await bot.fetch_channel(MEMBERS_ID)
         if not ch: return
+        if getattr(ch, 'archived', False):
+            await ch.edit(archived=False)
         msg = await ch.fetch_message(mid)
         await msg.edit(content=content)
     except Exception as e:
