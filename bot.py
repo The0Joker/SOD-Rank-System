@@ -1771,11 +1771,10 @@ async def slash_setuppost(interaction: discord.Interaction):
         for env_key, forum_id, thread_name, builder in posts:
             forum = bot.get_channel(forum_id) or await bot.fetch_channel(forum_id)
             content = await builder(guild)
-            thread = await forum.create_thread(name=thread_name, content=content)
-            mid = thread.id
-            async for m in thread.history(limit=1, oldest_first=True):
-                mid = m.id; break
-            lines.append(f'{env_key}={thread.id}:{mid}')
+            result = await forum.create_thread(name=thread_name, content=content)
+            thread = result.thread
+            msg = result.message
+            lines.append(f'{env_key}={thread.id}:{msg.id}')
         # Members post (regular channel)
         members_ch = bot.get_channel(MEMBERS_ID) or await bot.fetch_channel(MEMBERS_ID)
         members_msg = await members_ch.send(await build_members_post(guild))
