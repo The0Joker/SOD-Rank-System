@@ -1468,18 +1468,18 @@ async def slash_pvp(interaction: discord.Interaction, winner: str, loser: str, s
         app_commands.Choice(name='Both TP and RS',           value='both'),
     ]
 )
-async def slash_addmember(interaction: discord.Interaction, name: str, rank: app_commands.Choice[str]=None, flag: str='', handle: str='', role: app_commands.Choice[str]=None, league: app_commands.Choice[str]=None):
+async def slash_addmember(interaction: discord.Interaction, name: str, league: app_commands.Choice[str], rank: app_commands.Choice[str], handle: str, role: app_commands.Choice[str], flag: str):
     await interaction.response.defer()
     if not await check_permission(interaction, 'addmember'): return
-    league_val = league.value if league else 'none'
+    league_val = league.value
     in_tp = league_val in ('TP', 'both')
     in_rs = league_val in ('RS', 'both')
-    await _add_member(interaction, name, rank.value if rank else 'F', flag, handle, role.value if role else '', in_tp=in_tp, in_rs=in_rs)
+    await _add_member(interaction, name, rank.value, flag, handle, role.value, in_tp=in_tp, in_rs=in_rs)
 
 @bot.tree.command(name='removemember', description='Remove a clan member')
 @app_commands.describe(name='Player name', kick='True = delete permanently, False = just unrank (default)')
 @app_commands.autocomplete(name=autocomplete_all_players)
-async def slash_removemember(interaction: discord.Interaction, name: str, kick: bool=False):
+async def slash_removemember(interaction: discord.Interaction, name: str, kick: bool):
     await interaction.response.defer()
     if not await check_permission(interaction, 'removemember'): return
     if kick:
@@ -1775,15 +1775,13 @@ async def slash_leaderboard(interaction: discord.Interaction):
 @bot.tree.command(name='sethandle', description='Set a player Discord handle')
 @app_commands.describe(name='Player name', handle='Discord handle', flag='Country flag emoji')
 @app_commands.autocomplete(name=autocomplete_all_players)
-async def slash_sethandle(interaction: discord.Interaction, name: str, handle: str, flag: str=''):
+async def slash_sethandle(interaction: discord.Interaction, name: str, handle: str, flag: str):
     await interaction.response.defer()
     if not await check_permission(interaction, 'sethandle'): return
     key = name.lower()
     if not await sb_get('players', f'key=eq.{key}'):
         await interaction.followup.send(f'❌ **{name}** not found.'); return
-    data = {'discord_handle': handle}
-    if flag: data['flag'] = flag
-    await sb_patch('players', f'key=eq.{key}', data)
+    await sb_patch('players', f'key=eq.{key}', {'discord_handle': handle, 'flag': flag})
     await interaction.followup.send(f'✅ Updated **{name}** → {handle} {flag}')
     asyncio.create_task(update_all_posts(interaction.guild))
 
