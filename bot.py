@@ -459,34 +459,67 @@ async def build_members_post(guild=None):
     return '\n'.join(lines)
 
 # ── UPDATE DISCORD POSTS ──────────────────────────────────────────────────────
-LB_MSG_IDS = {}  # post_key -> message_id
+LB_MSG_IDS = {}  # post_key -> message_id or (thread_id, message_id) for forum posts
 
-async def update_post(channel_id: int, content: str, post_key: str):
+async def update_post(channel_id: int, content: str, post_key: str, thread_name: str = None):
     channel = bot.get_channel(channel_id)
     if not channel:
         try: channel = await bot.fetch_channel(channel_id)
-        except: print(f'[update_post] cannot find channel {channel_id}'); return
+        except Exception as e: print(f'[update_post] cannot find channel {channel_id}: {e}'); return
+
+    is_forum = isinstance(channel, discord.ForumChannel)
+
+    async def _edit_in_thread(thread_id: int, msg_id: int) -> bool:
+        try:
+            thread = bot.get_channel(thread_id) or await bot.fetch_channel(thread_id)
+            msg = await thread.fetch_message(msg_id)
+            await msg.edit(content=content); return True
+        except: return False
+
+    async def _edit_in_channel(msg_id: int) -> bool:
+        try:
+            msg = await channel.fetch_message(msg_id)
+            await msg.edit(content=content); return True
+        except: return False
+
     # Try in-memory cache
     if post_key in LB_MSG_IDS:
-        try:
-            msg = await channel.fetch_message(LB_MSG_IDS[post_key])
-            await msg.edit(content=content); return
-        except: del LB_MSG_IDS[post_key]
-    # Try DB-stored message ID
+        cached = LB_MSG_IDS[post_key]
+        ok = await _edit_in_thread(*cached) if (is_forum and isinstance(cached, tuple)) else await _edit_in_channel(cached)
+        if ok: return
+        del LB_MSG_IDS[post_key]
+
+    # Try DB-stored IDs
     try:
         rows = await sb_get('settings', f'key=eq.post_{post_key}')
         if rows and rows[0].get('value'):
-            try:
-                msg = await channel.fetch_message(int(rows[0]['value']))
-                await msg.edit(content=content)
-                LB_MSG_IDS[post_key] = msg.id; return
-            except: pass
+            val = rows[0]['value']
+            if is_forum and ':' in val:
+                tid, mid = [int(x) for x in val.split(':', 1)]
+                if await _edit_in_thread(tid, mid):
+                    LB_MSG_IDS[post_key] = (tid, mid); return
+            elif not is_forum:
+                mid = int(val)
+                if await _edit_in_channel(mid):
+                    LB_MSG_IDS[post_key] = mid; return
     except: pass
-    # No existing message — send fresh and save ID to DB
-    msg = await channel.send(content)
-    LB_MSG_IDS[post_key] = msg.id
-    try: await sb_upsert('settings', [{'key': f'post_{post_key}', 'value': str(msg.id)}])
-    except Exception as e: print(f'[update_post] failed to save ID for {post_key}: {e}')
+
+    # Nothing found — create fresh
+    if is_forum:
+        name = thread_name or post_key.replace('_', ' ').upper()
+        thread = await channel.create_thread(name=name, content=content)
+        mid = None
+        async for m in thread.history(limit=1, oldest_first=True):
+            mid = m.id; break
+        if mid:
+            LB_MSG_IDS[post_key] = (thread.id, mid)
+            try: await sb_upsert('settings', [{'key': f'post_{post_key}', 'value': f'{thread.id}:{mid}'}])
+            except Exception as e: print(f'[update_post] failed to save IDs for {post_key}: {e}')
+    else:
+        msg = await channel.send(content)
+        LB_MSG_IDS[post_key] = msg.id
+        try: await sb_upsert('settings', [{'key': f'post_{post_key}', 'value': str(msg.id)}])
+        except Exception as e: print(f'[update_post] failed to save ID for {post_key}: {e}')
 
 async def find_member(guild, discord_handle):
     """Find a guild member by stored handle using cache → gateway query → REST search."""
@@ -922,12 +955,12 @@ async def sync_all_roles(guild):
     await sync_all_rs_roles(guild)  # also sync RS roles
 
 async def update_all_posts(guild=None):
-    # All-time posted first so current (posted second) is the newest message = on top
-    await update_post(TP_THREAD_ID,  await build_alltime_lb(guild),    'tp_alltime')
-    await update_post(TP_THREAD_ID,  await build_current_lb(guild),    'tp_current')
-    await update_post(RS_THREAD_ID,  await build_rs_alltime_lb(guild), 'rs_alltime')
-    await update_post(RS_THREAD_ID,  await build_rs_current_lb(guild), 'rs_current')
-    await update_post(MEMBERS_ID,    await build_members_post(guild),  'members')
+    # All-time posted first so current (posted second) is the newest = on top
+    await update_post(TP_THREAD_ID,  await build_alltime_lb(guild),    'tp_alltime', 'ALL TIME LEADERBOARD')
+    await update_post(TP_THREAD_ID,  await build_current_lb(guild),    'tp_current', 'CURRENT LEADERBOARD')
+    await update_post(RS_THREAD_ID,  await build_rs_alltime_lb(guild), 'rs_alltime', 'ALL TIME LEADERBOARD')
+    await update_post(RS_THREAD_ID,  await build_rs_current_lb(guild), 'rs_current', 'CURRENT LEADERBOARD')
+    await update_post(MEMBERS_ID,    await build_members_post(guild),  'members',    'Members')
 
 async def enforce_roles(guild):
     """Enforce correct Discord roles for every member:
