@@ -1817,10 +1817,17 @@ async def slash_setuppost(interaction: discord.Interaction):
             lines.append(f'{env_key}={thread.id}:{msg.id}')
         # Members channel posts — Ex Members first, Clan Members second (on top)
         members_ch = bot.get_channel(MEMBERS_ID) or await bot.fetch_channel(MEMBERS_ID)
-        ex_msg = await members_ch.send(await build_ex_members_post(guild))
-        lines.append(f'POST_EX_MEMBERS={ex_msg.id}')
-        members_msg = await members_ch.send(await build_members_post(guild))
-        lines.append(f'POST_MEMBERS={members_msg.id}')
+        for env_key, thread_name, builder in [
+            ('POST_EX_MEMBERS', 'Ex Members 🪦',  build_ex_members_post),
+            ('POST_MEMBERS',    'Clan Members',    build_members_post),
+        ]:
+            content = await builder(guild)
+            if isinstance(members_ch, discord.ForumChannel):
+                result = await members_ch.create_thread(name=thread_name, content=content)
+                lines.append(f'{env_key}={result.thread.id}:{result.message.id}')
+            else:
+                msg = await members_ch.send(content)
+                lines.append(f'{env_key}={msg.id}')
         lines.append('```\n⚠️ Add these to Render env vars then redeploy.')
         await interaction.followup.send('\n'.join(lines), ephemeral=True)
     except Exception as e:
