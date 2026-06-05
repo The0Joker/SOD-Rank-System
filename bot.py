@@ -31,11 +31,12 @@ RS_THREAD_ID   = int(os.environ.get('RS_THREAD_ID', '1500573287468634297'))
 # Post IDs — set via /setuppost, then paste into Render env vars
 # Format for forum posts: "thread_id:msg_id"   Format for members: "msg_id"
 POST_IDS = {
-    'tp_alltime': os.environ.get('POST_TP_ALLTIME', ''),
-    'tp_current': os.environ.get('POST_TP_CURRENT', ''),
-    'rs_alltime': os.environ.get('POST_RS_ALLTIME', ''),
-    'rs_current': os.environ.get('POST_RS_CURRENT', ''),
-    'members':    os.environ.get('POST_MEMBERS',    ''),
+    'tp_alltime':  os.environ.get('POST_TP_ALLTIME',  ''),
+    'tp_current':  os.environ.get('POST_TP_CURRENT',  ''),
+    'rs_alltime':  os.environ.get('POST_RS_ALLTIME',  ''),
+    'rs_current':  os.environ.get('POST_RS_CURRENT',  ''),
+    'members':     os.environ.get('POST_MEMBERS',     ''),
+    'ex_members':  os.environ.get('POST_EX_MEMBERS',  ''),
 }
 
 HEADERS = {
@@ -286,8 +287,9 @@ async def build_current_lb(guild=None):
 
 async def build_alltime_lb(guild=None):
     players = await sb_get('players', 'order=points.desc')
-    # All-time includes members who left — they appear with *(left)* marker
-    ranked = [p for p in players if not p.get('unranked', False) and p.get('in_tp') is not False]
+    # Left members only appear if they ranked up or were here 3+ months
+    ranked = [p for p in players if not p.get('unranked', False) and p.get('in_tp') is not False
+              and (not p.get('left_server', False) or _ex_eligible(p))]
     ranked.sort(key=lambda p: (-rank_idx(p['rank']), -p.get('points', 0)))
     lines = ['**```ALL TIME LEADERBOARD```**\n']
     groups = []
@@ -376,7 +378,8 @@ async def build_rs_current_lb(guild=None):
 
 async def build_rs_alltime_lb(guild=None):
     players = await sb_get('players', 'order=rs_points.desc')
-    ranked = [p for p in players if p.get('in_rs', False) and not p.get('rs_unranked', False)]
+    ranked = [p for p in players if p.get('in_rs', False) and not p.get('rs_unranked', False)
+              and (not p.get('left_server', False) or _ex_eligible(p))]
     ranked.sort(key=lambda p: (-rs_rank_idx(p.get('rs_rank','F')), -p.get('rs_points', 0)))
     lines = ['**```ALL TIME LEADERBOARD```**\n']
     groups = []
@@ -418,6 +421,41 @@ async def build_rs_alltime_lb(guild=None):
             if pts > 0: line += f'  [ *{pts} Points* ]'
             lines.append(line); lines.append('> ')
         display_pos += 1
+    return '\n'.join(lines)
+
+def _ex_eligible(p):
+    """Left member qualifies if they ranked up at least once OR were in the clan 3+ months."""
+    if p.get('rank', 'F') != 'F' or p.get('rs_rank', 'F') != 'F':
+        return True
+    joined = p.get('joined_at')
+    if joined:
+        try:
+            join_dt = datetime.fromisoformat(joined.replace('Z', '+00:00'))
+            if datetime.now(timezone.utc) - join_dt >= timedelta(days=90):
+                return True
+        except: pass
+    return False
+
+async def build_ex_members_post(guild=None):
+    players = await sb_get('players', 'order=join_order.asc')
+    eligible = [p for p in players if p.get('left_server', False) and _ex_eligible(p)]
+    lines = ['**```Ex Members 🪦```**\n']
+    if not eligible:
+        lines.append('> *No former members meet the criteria yet.*')
+        return '\n'.join(lines)
+    for i, p in enumerate(eligible):
+        tp_rank = p.get('rank', 'F')
+        rs_rank = p.get('rs_rank', 'F')
+        rank_parts = []
+        if tp_rank != 'F':
+            re = RANK_EMOJI.get(tp_rank, '')
+            rank_parts.append(f'**{tp_rank} Rank**' + (f' {re}' if re else ''))
+        if rs_rank != 'F':
+            rank_parts.append(f'**{rs_rank} RS**')
+        line = f'> {i+1}. {p["name"]}'
+        if p.get('flag'): line += f' {p["flag"]}'
+        if rank_parts: line += ' — ' + ' · '.join(rank_parts)
+        lines.append(line)
     return '\n'.join(lines)
 
 async def build_members_post(guild=None):
@@ -922,11 +960,12 @@ async def sync_all_roles(guild):
     await sync_all_rs_roles(guild)  # also sync RS roles
 
 async def update_all_posts(guild=None):
-    await update_post(await build_alltime_lb(guild),    'tp_alltime')
-    await update_post(await build_current_lb(guild),    'tp_current')
-    await update_post(await build_rs_alltime_lb(guild), 'rs_alltime')
-    await update_post(await build_rs_current_lb(guild), 'rs_current')
-    await update_post(await build_members_post(guild),  'members')
+    await update_post(await build_alltime_lb(guild),      'tp_alltime')
+    await update_post(await build_current_lb(guild),      'tp_current')
+    await update_post(await build_rs_alltime_lb(guild),   'rs_alltime')
+    await update_post(await build_rs_current_lb(guild),   'rs_current')
+    await update_post(await build_ex_members_post(guild), 'ex_members')
+    await update_post(await build_members_post(guild),    'members')
 
 async def enforce_roles(guild):
     """Enforce correct Discord roles for every member:
@@ -1217,6 +1256,7 @@ async def on_member_join(member):
             'rs_rank': 'F', 'rs_points': 0, 'rs_wins': 0, 'rs_losses': 0,
             'rs_streak': 0, 'rs_start_points': 0, 'rs_unranked': False,
             'left_server': False,
+            'joined_at': datetime.now(timezone.utc).isoformat(),
         }])
         log_ch = bot.get_channel(LOG_CHANNEL_ID)
         league_note = ' (TP)' if in_tp and not in_rs else ' (RS)' if in_rs and not in_tp else ' (TP + RS)' if in_tp and in_rs else ''
@@ -1775,8 +1815,10 @@ async def slash_setuppost(interaction: discord.Interaction):
             thread = result.thread
             msg = result.message
             lines.append(f'{env_key}={thread.id}:{msg.id}')
-        # Members post (regular channel)
+        # Members channel posts — Ex Members first, Clan Members second (on top)
         members_ch = bot.get_channel(MEMBERS_ID) or await bot.fetch_channel(MEMBERS_ID)
+        ex_msg = await members_ch.send(await build_ex_members_post(guild))
+        lines.append(f'POST_EX_MEMBERS={ex_msg.id}')
         members_msg = await members_ch.send(await build_members_post(guild))
         lines.append(f'POST_MEMBERS={members_msg.id}')
         lines.append('```\n⚠️ Add these to Render env vars then redeploy.')
