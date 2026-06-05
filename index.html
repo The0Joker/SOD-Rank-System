@@ -117,7 +117,7 @@ select option{background:var(--bg2);color:var(--tx);}
 .th{font-size:11px;color:var(--tx3);font-weight:700;background:rgba(139,92,246,.08);border-bottom:1px solid var(--br)!important;text-transform:uppercase;letter-spacing:.5px;}
 .roster-tr{grid-template-columns:32px minmax(0,2fr) 84px 36px 36px 58px 40px 64px 130px;}
 .lb-tr{grid-template-columns:34px minmax(0,1fr) 90px 50px 50px 50px 70px 80px 40px;}
-.at-tr{grid-template-columns:34px minmax(0,1fr) 90px 50px 50px 50px;}
+.at-tr{grid-template-columns:34px minmax(0,1fr) 90px 50px 50px 50px 60px;}
 .hist-tr{grid-template-columns:minmax(0,1fr) 52px minmax(0,1fr) 90px 90px 90px;}
 .me-tr{grid-template-columns:minmax(0,1fr) 90px 54px 54px 70px 90px;}
 .empty{padding:2.5rem;text-align:center;color:var(--tx3);font-size:14px;}
@@ -203,7 +203,7 @@ select option{background:var(--bg2);color:var(--tx);}
   .row2,.row3{grid-template-columns:1fr;}
   .roster-tr{grid-template-columns:28px minmax(0,1fr) 62px 30px 30px 40px 30px 44px 100px;}
   .lb-tr{grid-template-columns:24px minmax(0,1fr) 62px 30px 30px 34px 46px 56px 28px;}
-  .at-tr{grid-template-columns:24px minmax(0,1fr) 62px 30px 30px 34px;}
+  .at-tr{grid-template-columns:24px minmax(0,1fr) 62px 30px 30px 34px 44px;}
   .hist-tr{grid-template-columns:minmax(0,1fr) 38px minmax(0,1fr) 62px 72px 80px;}
   .me-tr{grid-template-columns:minmax(0,1fr) 62px 34px 34px 50px 70px;}
   .info-grid{grid-template-columns:1fr;}
@@ -580,7 +580,7 @@ select option{background:var(--bg2);color:var(--tx);}
   <div class="ssec" id="sub-alltime">
     <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
       <div class="tbl" style="min-width:380px;">
-        <div class="tr th at-tr"><div>#</div><div>Player</div><div>Rank</div><div>W</div><div>L</div><div>W%</div></div>
+        <div class="tr th at-tr"><div>#</div><div>Player</div><div>Rank</div><div>W</div><div>L</div><div>W%</div><div>Points</div></div>
         <div id="at-body"><div class="empty">Loading…</div></div>
       </div>
     </div>
@@ -1150,12 +1150,12 @@ function renderAllTime(){
     const ps=Object.values(DB.players).filter(p=>p.in_rs&&!p.rs_unranked);
     if(!ps.length){atEl.innerHTML='<div class="empty">No RS data.</div>';return;}
     ps.sort((a,b)=>rsRankIdx(b.rs_rank||'F')-rsRankIdx(a.rs_rank||'F')||(b.rs_points||0)-(a.rs_points||0));
-    atEl.innerHTML=ps.map((p,i)=>{const t=(p.rs_wins||0)+(p.rs_losses||0),wr=t>0?Math.round((p.rs_wins||0)/t*100):0;const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':String(i+1);const leftTag=p.left_server?'<span style="font-size:10px;color:var(--tx3);font-style:italic;margin-left:4px;">(left)</span>':'';return`<div class="tr at-tr"><div style="text-align:center;font-size:${i<3?'16':'13'}px">${medal}</div><div style="font-weight:700">${esc(p.name)} ${p.flag||''} ${p.is_elite?'<span class="elite-tag">Elite</span>':''}${leftTag}</div><div><span class="rb r${esc(p.rs_rank||'F')}">${esc(p.rs_rank||'F')} RS</span></div><div style="color:var(--txs)">${p.rs_wins||0}</div><div style="color:var(--txd)">${p.rs_losses||0}</div><div>${wr}%</div></div>`;}).join('');
+    atEl.innerHTML=ps.map((p,i)=>{const t=(p.rs_wins||0)+(p.rs_losses||0),wr=t>0?Math.round((p.rs_wins||0)/t*100):0;const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':String(i+1);const leftTag=p.left_server?'<span style="font-size:10px;color:var(--tx3);font-style:italic;margin-left:4px;">(left)</span>':'';return`<div class="tr at-tr"><div style="text-align:center;font-size:${i<3?'16':'13'}px">${medal}</div><div style="font-weight:700">${esc(p.name)} ${p.flag||''} ${p.is_elite?'<span class="elite-tag">Elite</span>':''}${leftTag}</div><div><span class="rb r${esc(p.rs_rank||'F')}">${esc(p.rs_rank||'F')} RS</span></div><div style="color:var(--txs)">${p.rs_wins||0}</div><div style="color:var(--txd)">${p.rs_losses||0}</div><div>${wr}%</div><div style="font-weight:700">${p.rs_points||0}</div></div>`;}).join('');
   }else{
     const ps=Object.values(DB.players).filter(p=>!p.unranked&&p.in_tp!==false);
     if(!ps.length){atEl.innerHTML='<div class="empty">No data.</div>';return;}
     ps.sort((a,b)=>rankIdx(b.rank)-rankIdx(a.rank)||b.points-a.points);
-    atEl.innerHTML=ps.map((p,i)=>{const t=p.wins+p.losses,wr=t>0?Math.round(p.wins/t*100):0;const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':String(i+1);const leftTag=p.left_server?'<span style="font-size:10px;color:var(--tx3);font-style:italic;margin-left:4px;">(left)</span>':'';return`<div class="tr at-tr"><div style="text-align:center;font-size:${i<3?'16':'13'}px">${medal}</div><div style="font-weight:700">${esc(p.name)} ${p.flag||''}${leftTag}</div><div><span class="rb r${esc(p.rank)}">${esc(p.rank)}</span></div><div style="color:var(--txs)">${p.wins}</div><div style="color:var(--txd)">${p.losses}</div><div>${wr}%</div></div>`;}).join('');
+    atEl.innerHTML=ps.map((p,i)=>{const t=p.wins+p.losses,wr=t>0?Math.round(p.wins/t*100):0;const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':String(i+1);const leftTag=p.left_server?'<span style="font-size:10px;color:var(--tx3);font-style:italic;margin-left:4px;">(left)</span>':'';return`<div class="tr at-tr"><div style="text-align:center;font-size:${i<3?'16':'13'}px">${medal}</div><div style="font-weight:700">${esc(p.name)} ${p.flag||''}${leftTag}</div><div><span class="rb r${esc(p.rank)}">${esc(p.rank)}</span></div><div style="color:var(--txs)">${p.wins}</div><div style="color:var(--txd)">${p.losses}</div><div>${wr}%</div><div style="font-weight:700">${p.points||0}</div></div>`;}).join('');
   }
 }
 function renderManualEdit(){
