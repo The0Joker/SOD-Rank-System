@@ -502,9 +502,13 @@ select option{background:var(--bg2);color:var(--tx);}
     <div class="msg" id="r-msg"></div>
   </div>
   <div style="font-size:12px;color:var(--tx3);margin-bottom:8px;padding:0 4px;">Use ▲▼ arrows to reorder members. Order is saved and reflected in the Discord members post.</div>
+  <div class="league-bar" style="margin:4px 0 10px;">
+    <button class="ltab on" data-roster="active" onclick="setRosterView('active')">Active Members</button>
+    <button class="ltab" data-roster="ex" onclick="setRosterView('ex')">Ex Members 🪦</button>
+  </div>
   <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
     <div class="tbl" style="min-width:560px;">
-      <div class="tr th roster-tr">
+      <div class="tr th roster-tr" id="roster-header">
         <div>#</div><div>Player</div><div>Rank</div><div>W</div><div>L</div><div>Points</div><div>W%</div><div>Role</div><div>Actions</div>
       </div>
       <div id="roster-body"><div class="empty">Loading…</div></div>
@@ -786,6 +790,22 @@ const RS_RANKS=['F','E','D','C','B','A','S'];
 const RS_THRESH={F:0,E:30,D:70,C:120,B:180,A:250,S:330};
 const RFILL_RS={F:'#888780',E:'#639922',D:'#378ADD',C:'#185FA5',B:'#BA7517',A:'#D4537E',S:'#534AB7'};
 let currentLeague='TP';
+let rosterView='active';
+function setRosterView(v){
+  rosterView=v;
+  document.querySelectorAll('.ltab[data-roster]').forEach(btn=>btn.classList.toggle('on',btn.dataset.roster===v));
+  renderRoster();
+}
+function isExEligible(p){
+  if((p.rank&&p.rank!=='F')||(p.rs_rank&&p.rs_rank!=='F'))return true;
+  if(p.joined_at){const d=new Date(p.joined_at);if(d<=new Date(Date.now()-90*24*60*60*1000))return true;}
+  return false;
+}
+async function restoreMember(key){
+  const p=DB.players[key];if(!p)return;
+  if(!confirm('Restore '+p.name+' to the active roster?'))return;
+  try{await sbPatch('players','key=eq.'+key,{left_server:false});await loadAll();}catch(e){alert('Error: '+e.message);}
+}
 let DB={players:{},matches:[],challenges:[]};
 let unlocked=false;
 let pendingDeleteKey=null;
@@ -1091,6 +1111,7 @@ function renderGODBanner(){
   else{el.innerHTML=`<div class="god-banner" style="opacity:.6;"><div class="god-crown">🪐</div><div class="god-banner-txt"><h3 class="vacant">No GOD yet</h3><p>Angel-rank players can claim this title.</p></div></div>`;}
 }
 function renderRoster(){
+  if(rosterView==='ex'){renderExRoster();return;}
   const ps=sortedRoster();
   if(!ps.length){document.getElementById('roster-body').innerHTML='<div class="empty">No members yet.</div>';return;}
   document.getElementById('roster-body').innerHTML=ps.map((p,i)=>{
@@ -1126,6 +1147,36 @@ function renderRoster(){
         <button class="bmove" onclick="movePlayer('${esc(p.key)}',1)" title="Move down">▼</button>
         ${anyUnranked?`<button class="bxs success" onclick="reAddToLeaderboard('${esc(p.key)}')">Re-add</button>`:`<button class="bxs" onclick="editPlayer('${esc(p.key)}')">Edit</button>`}
         <button class="bxs danger" onclick="removeMember('${esc(p.key)}')">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function renderExRoster(){
+  const ps=Object.values(DB.players).filter(p=>p.left_server&&isExEligible(p));
+  ps.sort((a,b)=>(a.join_order||0)-(b.join_order||0));
+  if(!ps.length){document.getElementById('roster-body').innerHTML='<div class="empty">No former members yet.</div>';return;}
+  document.getElementById('roster-body').innerHTML=ps.map((p,i)=>{
+    const rsOnly=p.in_rs&&p.in_tp===false;
+    let wins,losses,pts,rank,rankBadge;
+    if(rsOnly){wins=p.rs_wins||0;losses=p.rs_losses||0;pts=p.rs_points||0;rank=p.rs_rank||'F';rankBadge=`<span class="rb r${esc(rank)}">${esc(rank)} RS</span>`;}
+    else{wins=p.wins||0;losses=p.losses||0;pts=p.points||0;rank=p.rank||'F';rankBadge=`<span class="rb r${esc(rank)}">${esc(rank)}</span>`;if(p.in_rs&&(p.rs_rank||'F')!=='F')rankBadge+=` <span class="rb r${esc(p.rs_rank||'F')}">${esc(p.rs_rank||'F')} RS</span>`;}
+    const t=wins+losses,wr=t>0?Math.round(wins/t*100):0;
+    return`<div class="tr roster-tr" style="opacity:.8;">
+      <div style="color:var(--tx3);font-size:12px;text-align:center;">${i+1}</div>
+      <div style="font-weight:700;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+        <span>${esc(p.name)} ${p.flag||''}</span>
+        ${p.discord_handle?`<span style="font-size:11px;color:var(--tx3);font-weight:400;">${esc(p.discord_handle)}</span>`:''}
+        ${roleBadge(p.discord_role)}
+      </div>
+      <div>${rankBadge}</div>
+      <div style="color:var(--txs)">${wins}</div>
+      <div style="color:var(--txd)">${losses}</div>
+      <div style="font-weight:700">${pts}</div>
+      <div style="color:var(--tx2)">${wr}%</div>
+      <div></div>
+      <div class="erow">
+        <button class="bxs" onclick="editPlayer('${esc(p.key)}')">Edit</button>
+        <button class="bxs success" onclick="restoreMember('${esc(p.key)}')">Restore</button>
       </div>
     </div>`;
   }).join('');
