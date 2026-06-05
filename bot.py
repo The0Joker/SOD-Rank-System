@@ -1071,7 +1071,7 @@ async def kick_watcher():
     """Poll settings every 30s for a kick_player signal from the website."""
     await bot.wait_until_ready()
     while not bot.is_closed():
-        await asyncio.sleep(30)
+        await asyncio.sleep(120)  # every 2 minutes
         try:
             rows = await sb_get('settings', 'key=eq.kick_player')
             if not rows or not rows[0].get('value'):
@@ -1097,7 +1097,7 @@ async def manual_edit_sync_watcher():
     """Poll settings table every 60s for a manual rank edit, then fix Discord role."""
     await bot.wait_until_ready()
     while not bot.is_closed():
-        await asyncio.sleep(60)
+        await asyncio.sleep(300)  # every 5 minutes
         try:
             rows = await sb_get('settings', 'key=eq.role_sync_player')
             if not rows or not rows[0].get('value'):
@@ -1153,7 +1153,7 @@ async def periodic_role_sync():
                 await update_all_posts(guild)  # no-op until POST_* env vars are set
         except Exception as e:
             print(f'[periodic_sync] error: {e}')
-        await asyncio.sleep(1200)  # every 20 minutes
+        await asyncio.sleep(3600)  # every 60 minutes
 
 @bot.event
 async def on_ready():
@@ -1197,7 +1197,7 @@ async def challenge_expiry_loop():
             await process_expired_challenges()
         except Exception as e:
             print(f'[expiry_loop] {e}')
-        await asyncio.sleep(3600)  # check every hour
+        await asyncio.sleep(21600)  # check every 6 hours
 
 async def process_expired_challenges():
     now = datetime.now(timezone.utc).isoformat()
