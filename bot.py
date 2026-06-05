@@ -23,11 +23,11 @@ threading.Thread(target=_run_server, daemon=True).start()
 SUPABASE_URL  = os.environ['SUPABASE_URL']
 SUPABASE_KEY  = os.environ['SUPABASE_KEY']
 LOG_CHANNEL_ID = int(os.environ['LOG_CHANNEL_ID'])
-CURRENT_LB_ID  = int(os.environ['CURRENT_LB_ID'])
-ALLTIME_LB_ID  = int(os.environ['ALLTIME_LB_ID'])
 MEMBERS_ID     = int(os.environ['MEMBERS_ID'])
 ROLE_LOG_ID    = int(os.environ.get('ROLE_LOG_ID', '1504206471653621760'))
 SOD_GUILD_ID   = int(os.environ.get('SOD_GUILD_ID', '1456710207026626611'))
+TP_THREAD_ID   = int(os.environ.get('TP_THREAD_ID', '1500573014956310558'))
+RS_THREAD_ID   = int(os.environ.get('RS_THREAD_ID', '1500573287468634297'))
 
 HEADERS = {
     'apikey': SUPABASE_KEY,
@@ -48,8 +48,6 @@ MEDAL = {0:'🥇',1:'🥈',2:'🥉'}
 RS_RANKS = ['F', 'E', 'D', 'C', 'B', 'A', 'S']
 RS_THRESH = {'F':0,'E':30,'D':70,'C':120,'B':180,'A':250,'S':330}
 RS_ROLE_NAMES = {r: f'{r} Rank RS' for r in RS_RANKS}
-RS_CURRENT_LB_ID = 1504410991750938644
-RS_ALLTIME_LB_ID = 1504411488448807003
 RANKED_STYLE_ROLE = 'Ranked Style'
 TRUE_POWER_ROLE   = 'True Power'
 ELITE_RS_ROLE = 'Elite RS'
@@ -236,7 +234,7 @@ def fmt_handle(handle, guild):
 async def build_current_lb(guild=None):
     players = await sb_get('players', 'order=points.desc')
     ranked = [p for p in players if not p.get('unranked', False) and p.get('in_tp') is not False and not p.get('left_server', False)]
-    lines = ['**```Current Leaderboard```**\n']
+    lines = ['**```CURRENT LEADERBOARD```**\n']
     groups = []
     for p in ranked:
         pts = p.get('points', 0)
@@ -282,7 +280,7 @@ async def build_alltime_lb(guild=None):
     # All-time includes members who left — they appear with *(left)* marker
     ranked = [p for p in players if not p.get('unranked', False) and p.get('in_tp') is not False]
     ranked.sort(key=lambda p: (-rank_idx(p['rank']), -p.get('points', 0)))
-    lines = ['**```All Time Leaderboard```**\n']
+    lines = ['**```ALL TIME LEADERBOARD```**\n']
     groups = []
     for p in ranked:
         pts = p.get('points', 0)
@@ -328,7 +326,7 @@ async def build_alltime_lb(guild=None):
 async def build_rs_current_lb(guild=None):
     players = await sb_get('players', 'order=rs_points.desc')
     ranked = [p for p in players if p.get('in_rs', False) and not p.get('rs_unranked', False) and not p.get('left_server', False)]
-    lines = ['**```RS Current Leaderboard```**\n']
+    lines = ['**```CURRENT LEADERBOARD```**\n']
     groups = []
     for p in ranked:
         pts = p.get('rs_points', 0)
@@ -371,7 +369,7 @@ async def build_rs_alltime_lb(guild=None):
     players = await sb_get('players', 'order=rs_points.desc')
     ranked = [p for p in players if p.get('in_rs', False) and not p.get('rs_unranked', False)]
     ranked.sort(key=lambda p: (-rs_rank_idx(p.get('rs_rank','F')), -p.get('rs_points', 0)))
-    lines = ['**```RS All Time Leaderboard```**\n']
+    lines = ['**```ALL TIME LEADERBOARD```**\n']
     groups = []
     for p in ranked:
         pts = p.get('rs_points', 0)
@@ -461,24 +459,34 @@ async def build_members_post(guild=None):
     return '\n'.join(lines)
 
 # ── UPDATE DISCORD POSTS ──────────────────────────────────────────────────────
-LB_MSG_IDS = {}
+LB_MSG_IDS = {}  # post_key -> message_id
 
-async def update_post(channel_id, content):
+async def update_post(channel_id: int, content: str, post_key: str):
     channel = bot.get_channel(channel_id)
     if not channel:
         try: channel = await bot.fetch_channel(channel_id)
-        except: print(f'Cannot find channel {channel_id}'); return
-    if channel_id in LB_MSG_IDS:
+        except: print(f'[update_post] cannot find channel {channel_id}'); return
+    # Try in-memory cache
+    if post_key in LB_MSG_IDS:
         try:
-            msg = await channel.fetch_message(LB_MSG_IDS[channel_id])
+            msg = await channel.fetch_message(LB_MSG_IDS[post_key])
             await msg.edit(content=content); return
-        except: pass
-    async for msg in channel.history(limit=20):
-        if msg.author == bot.user:
-            LB_MSG_IDS[channel_id] = msg.id
-            await msg.edit(content=content); return
+        except: del LB_MSG_IDS[post_key]
+    # Try DB-stored message ID
+    try:
+        rows = await sb_get('settings', f'key=eq.post_{post_key}')
+        if rows and rows[0].get('value'):
+            try:
+                msg = await channel.fetch_message(int(rows[0]['value']))
+                await msg.edit(content=content)
+                LB_MSG_IDS[post_key] = msg.id; return
+            except: pass
+    except: pass
+    # No existing message — send fresh and save ID to DB
     msg = await channel.send(content)
-    LB_MSG_IDS[channel_id] = msg.id
+    LB_MSG_IDS[post_key] = msg.id
+    try: await sb_upsert('settings', [{'key': f'post_{post_key}', 'value': str(msg.id)}])
+    except Exception as e: print(f'[update_post] failed to save ID for {post_key}: {e}')
 
 async def find_member(guild, discord_handle):
     """Find a guild member by stored handle using cache → gateway query → REST search."""
@@ -914,11 +922,12 @@ async def sync_all_roles(guild):
     await sync_all_rs_roles(guild)  # also sync RS roles
 
 async def update_all_posts(guild=None):
-    await update_post(CURRENT_LB_ID,    await build_current_lb(guild))
-    await update_post(ALLTIME_LB_ID,    await build_alltime_lb(guild))
-    await update_post(RS_CURRENT_LB_ID, await build_rs_current_lb(guild))
-    await update_post(RS_ALLTIME_LB_ID, await build_rs_alltime_lb(guild))
-    await update_post(MEMBERS_ID,       await build_members_post(guild))
+    # All-time posted first so current (posted second) is the newest message = on top
+    await update_post(TP_THREAD_ID,  await build_alltime_lb(guild),    'tp_alltime')
+    await update_post(TP_THREAD_ID,  await build_current_lb(guild),    'tp_current')
+    await update_post(RS_THREAD_ID,  await build_rs_alltime_lb(guild), 'rs_alltime')
+    await update_post(RS_THREAD_ID,  await build_rs_current_lb(guild), 'rs_current')
+    await update_post(MEMBERS_ID,    await build_members_post(guild),  'members')
 
 async def enforce_roles(guild):
     """Enforce correct Discord roles for every member:
