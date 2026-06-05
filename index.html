@@ -863,7 +863,7 @@ function computeRankEligible(p){return canPromote(p)?RANKS[rankIdx(p.rank)+1]:nu
 
 const ROLE_SORT={'Owner':0,'High Admin':1,'Admin Of The Month':2,'Admin':3,'Manager':4,'SOD_PVP':5};
 function sortedRoster(){
-  const ps=Object.values(DB.players);
+  const ps=Object.values(DB.players).filter(p=>!p.left_server);
   ps.sort((a,b)=>{
     const rA=ROLE_SORT[a.discord_role]??5;
     const rB=ROLE_SORT[b.discord_role]??5;
@@ -1133,12 +1133,12 @@ function renderRoster(){
 function renderLB(){
   const lbEl=document.getElementById('lb-body');
   if(currentLeague==='RS'){
-    const ps=Object.values(DB.players).filter(p=>p.in_rs&&!p.rs_unranked);
+    const ps=Object.values(DB.players).filter(p=>p.in_rs&&!p.rs_unranked&&!p.left_server);
     if(!ps.length){lbEl.innerHTML='<div class="empty">No RS players yet.</div>';return;}
     ps.sort((a,b)=>(b.rs_points||0)-(a.rs_points||0));
     lbEl.innerHTML=ps.map((p,i)=>{const t=(p.rs_wins||0)+(p.rs_losses||0),wr=t>0?Math.round((p.rs_wins||0)/t*100):0;const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':String(i+1);const eliteTag=p.is_elite?'<span class="elite-tag">Elite RS</span>':'';return`<div class="tr lb-tr"><div style="text-align:center;font-size:${i<3?'16':'13'}px">${medal}</div><div style="font-weight:700">${esc(p.name)} ${p.flag||''} <span style="font-size:11px;color:var(--tx3);">${esc(p.discord_handle||'')}</span> ${eliteTag}</div><div><span class="rb r${esc(p.rs_rank||'F')}">${esc(p.rs_rank||'F')} RS</span></div><div style="color:var(--txs)">${p.rs_wins||0}</div><div style="color:var(--txd)">${p.rs_losses||0}</div><div>${wr}%</div><div style="font-weight:700">${p.rs_points||0}</div><div>${computeRsRankEligible(p)?`<span style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:6px;background:var(--bg-s);color:var(--txs);">→ ${esc(computeRsRankEligible(p))} RS</span>`:''}</div><div><button class="bxs danger" title="Remove from leaderboard" onclick="openDeleteModal('${esc(p.key)}')">✕</button></div></div>`;}).join('');
   }else{
-    const ps=Object.values(DB.players).filter(p=>!p.unranked&&p.in_tp!==false);
+    const ps=Object.values(DB.players).filter(p=>!p.unranked&&p.in_tp!==false&&!p.left_server);
     if(!ps.length){lbEl.innerHTML='<div class="empty">No data.</div>';return;}
     ps.sort((a,b)=>b.points-a.points);
     lbEl.innerHTML=ps.map((p,i)=>{const t=p.wins+p.losses,wr=t>0?Math.round(p.wins/t*100):0;const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':String(i+1);return`<div class="tr lb-tr"><div style="text-align:center;font-size:${i<3?'16':'13'}px">${medal}</div><div style="font-weight:700">${esc(p.name)} ${p.flag||''} <span style="font-size:11px;color:var(--tx3);">${esc(p.discord_handle||'')}</span></div><div><span class="rb r${esc(p.rank)}">${esc(p.rank)}</span></div><div style="color:var(--txs)">${p.wins}</div><div style="color:var(--txd)">${p.losses}</div><div>${wr}%</div><div style="font-weight:700">${p.points||0}</div><div>${statusTag(p)}</div><div><button class="bxs danger" title="Remove from leaderboard" onclick="openDeleteModal('${esc(p.key)}')">✕</button></div></div>`;}).join('');
@@ -1150,12 +1150,12 @@ function renderAllTime(){
     const ps=Object.values(DB.players).filter(p=>p.in_rs&&!p.rs_unranked);
     if(!ps.length){atEl.innerHTML='<div class="empty">No RS data.</div>';return;}
     ps.sort((a,b)=>rsRankIdx(b.rs_rank||'F')-rsRankIdx(a.rs_rank||'F')||(b.rs_points||0)-(a.rs_points||0));
-    atEl.innerHTML=ps.map((p,i)=>{const t=(p.rs_wins||0)+(p.rs_losses||0),wr=t>0?Math.round((p.rs_wins||0)/t*100):0;const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':String(i+1);return`<div class="tr at-tr"><div style="text-align:center;font-size:${i<3?'16':'13'}px">${medal}</div><div style="font-weight:700">${esc(p.name)} ${p.flag||''} ${p.is_elite?'<span class="elite-tag">Elite</span>':''}</div><div><span class="rb r${esc(p.rs_rank||'F')}">${esc(p.rs_rank||'F')} RS</span></div><div style="color:var(--txs)">${p.rs_wins||0}</div><div style="color:var(--txd)">${p.rs_losses||0}</div><div>${wr}%</div></div>`;}).join('');
+    atEl.innerHTML=ps.map((p,i)=>{const t=(p.rs_wins||0)+(p.rs_losses||0),wr=t>0?Math.round((p.rs_wins||0)/t*100):0;const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':String(i+1);const leftTag=p.left_server?'<span style="font-size:10px;color:var(--tx3);font-style:italic;margin-left:4px;">(left)</span>':'';return`<div class="tr at-tr"><div style="text-align:center;font-size:${i<3?'16':'13'}px">${medal}</div><div style="font-weight:700">${esc(p.name)} ${p.flag||''} ${p.is_elite?'<span class="elite-tag">Elite</span>':''}${leftTag}</div><div><span class="rb r${esc(p.rs_rank||'F')}">${esc(p.rs_rank||'F')} RS</span></div><div style="color:var(--txs)">${p.rs_wins||0}</div><div style="color:var(--txd)">${p.rs_losses||0}</div><div>${wr}%</div></div>`;}).join('');
   }else{
     const ps=Object.values(DB.players).filter(p=>!p.unranked&&p.in_tp!==false);
     if(!ps.length){atEl.innerHTML='<div class="empty">No data.</div>';return;}
     ps.sort((a,b)=>rankIdx(b.rank)-rankIdx(a.rank)||b.points-a.points);
-    atEl.innerHTML=ps.map((p,i)=>{const t=p.wins+p.losses,wr=t>0?Math.round(p.wins/t*100):0;const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':String(i+1);return`<div class="tr at-tr"><div style="text-align:center;font-size:${i<3?'16':'13'}px">${medal}</div><div style="font-weight:700">${esc(p.name)} ${p.flag||''}</div><div><span class="rb r${esc(p.rank)}">${esc(p.rank)}</span></div><div style="color:var(--txs)">${p.wins}</div><div style="color:var(--txd)">${p.losses}</div><div>${wr}%</div></div>`;}).join('');
+    atEl.innerHTML=ps.map((p,i)=>{const t=p.wins+p.losses,wr=t>0?Math.round(p.wins/t*100):0;const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':String(i+1);const leftTag=p.left_server?'<span style="font-size:10px;color:var(--tx3);font-style:italic;margin-left:4px;">(left)</span>':'';return`<div class="tr at-tr"><div style="text-align:center;font-size:${i<3?'16':'13'}px">${medal}</div><div style="font-weight:700">${esc(p.name)} ${p.flag||''}${leftTag}</div><div><span class="rb r${esc(p.rank)}">${esc(p.rank)}</span></div><div style="color:var(--txs)">${p.wins}</div><div style="color:var(--txd)">${p.losses}</div><div>${wr}%</div></div>`;}).join('');
   }
 }
 function renderManualEdit(){
@@ -1167,7 +1167,7 @@ function renderManualEdit(){
 function renderPlayers(){
   const playersEl=document.getElementById('players-body');
   if(currentLeague==='RS'){
-    const ps=Object.values(DB.players).filter(p=>p.in_rs&&!p.rs_unranked);
+    const ps=Object.values(DB.players).filter(p=>p.in_rs&&!p.rs_unranked&&!p.left_server);
     if(!ps.length){playersEl.innerHTML='<div class="empty">No RS players yet.</div>';return;}
     ps.sort((a,b)=>rsRankIdx(b.rs_rank||'F')-rsRankIdx(a.rs_rank||'F')||(b.rs_points||0)-(a.rs_points||0));
     playersEl.innerHTML=ps.map(p=>{
@@ -1177,7 +1177,7 @@ function renderPlayers(){
       return`<div class="pcard"><div class="pcard-top"><div><div class="pcard-name">${esc(p.name)} ${p.flag||''} ${roleBadge(p.discord_role)} ${eliteTag}</div><div class="pcard-sub">${p.rs_wins||0}W ${p.rs_losses||0}L · ${Math.round(wr*100)}% WR · ${p.rs_points||0} RS pts · ${esc(streak)}</div>${p.discord_handle?`<div style="font-size:11px;color:var(--tx3);margin-top:2px;">${esc(p.discord_handle)}</div>`:''}${eligible?`<span class="promote-tag">Ready → ${esc(eligible)} RS</span>`:''}</div><span class="rb r${esc(rsRk)}">${esc(rsRk)} RS</span></div><div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${RFILL_RS[rsRk]||'#888780'};"></div></div><div class="bar-lbl"><span>${pLabel}</span><span>${pct}%</span></div></div>`;
     }).join('');
   }else{
-    const ps=Object.values(DB.players).filter(p=>!p.unranked&&p.in_tp!==false);
+    const ps=Object.values(DB.players).filter(p=>!p.unranked&&p.in_tp!==false&&!p.left_server);
     if(!ps.length){playersEl.innerHTML='<div class="empty">No TP players yet.</div>';return;}
     ps.sort((a,b)=>rankIdx(b.rank)-rankIdx(a.rank)||b.points-a.points);
     playersEl.innerHTML=ps.map(p=>{
@@ -1204,7 +1204,7 @@ function renderHistory(){
 }
 function renderDatalist(){document.getElementById('plist').innerHTML=Object.values(DB.players).filter(p=>!p.unranked).map(p=>`<option value="${esc(p.name)}">`).join('');}
 function renderAll(){
-  const all=Object.keys(DB.players).length;const unrankedCount=Object.values(DB.players).filter(p=>p.unranked||p.rs_unranked).length;const activeCount=all-unrankedCount;
+  const active=Object.values(DB.players).filter(p=>!p.left_server);const unrankedCount=active.filter(p=>p.unranked||p.rs_unranked).length;const activeCount=active.length-unrankedCount;
   let pill=activeCount+' member'+(activeCount!==1?'s':'');if(unrankedCount>0)pill+=` · ${unrankedCount} unranked`;
   document.getElementById('clan-pill').textContent=pill;
   renderGODBanner();renderRoster();renderLB();renderAllTime();renderManualEdit();renderPlayers();renderHistory();renderDatalist();renderChallenges();

@@ -235,7 +235,7 @@ def fmt_handle(handle, guild):
 # ── BUILD POSTS ───────────────────────────────────────────────────────────────
 async def build_current_lb(guild=None):
     players = await sb_get('players', 'order=points.desc')
-    ranked = [p for p in players if not p.get('unranked', False) and p.get('in_tp') is not False]
+    ranked = [p for p in players if not p.get('unranked', False) and p.get('in_tp') is not False and not p.get('left_server', False)]
     lines = ['**```Current Leaderboard```**\n']
     groups = []
     for p in ranked:
@@ -248,6 +248,8 @@ async def build_current_lb(guild=None):
     for pts, group in groups:
         pos = display_pos
         medal = MEDAL.get(pos, f'#{pos+1}')
+        rank = group[0]['rank']
+        rank_e = RANK_EMOJI.get(rank, '')
         if len(group) > 1:
             parts = []
             for p in group:
@@ -258,17 +260,17 @@ async def build_current_lb(guild=None):
                 if handle: part += f' {handle}'
                 parts.append(part)
             line = f'> {medal}  ' + ' / '.join(parts)
-            if pts > 0: line += f'  [ *{pts} Points* ]'
-            rank_e = RANK_EMOJI.get(group[0]['rank'], '')
+            line += f'  **{rank} Rank**'
             if rank_e: line += f' {rank_e}'
+            if pts > 0: line += f'  [ *{pts} Points* ]'
             lines.append(line); lines.append('> ')
         else:
             p = group[0]
             flag   = p.get('flag', '')
             handle = fmt_handle(p.get('discord_handle', ''), guild)
-            rank_e = RANK_EMOJI.get(p['rank'], '')
             line   = f'> {medal}  {p["name"]} {flag}'
             if handle: line += f'  {handle}'
+            line  += f'  **{rank} Rank**'
             if rank_e: line += f' {rank_e}'
             if pts > 0: line += f'  [ *{pts} Points* ]'
             lines.append(line); lines.append('> ')
@@ -277,6 +279,7 @@ async def build_current_lb(guild=None):
 
 async def build_alltime_lb(guild=None):
     players = await sb_get('players', 'order=points.desc')
+    # All-time includes members who left — they appear with *(left)* marker
     ranked = [p for p in players if not p.get('unranked', False) and p.get('in_tp') is not False]
     ranked.sort(key=lambda p: (-rank_idx(p['rank']), -p.get('points', 0)))
     lines = ['**```All Time Leaderboard```**\n']
@@ -300,7 +303,8 @@ async def build_alltime_lb(guild=None):
                 flag = p.get('flag', '')
                 part = p['name']
                 if flag: part += f' {flag}'
-                if handle: part += f' {handle}'
+                if p.get('left_server'): part += ' *(left)*'
+                elif handle: part += f' {handle}'
                 parts.append(part)
             line = f'> {medal}  ' + ' / '.join(parts)
             if pts > 0: line += f'  [ *{pts} Points* ]'
@@ -311,8 +315,9 @@ async def build_alltime_lb(guild=None):
             p = group[0]
             flag   = p.get('flag', '')
             handle = fmt_handle(p.get('discord_handle', ''), guild)
-            line   = f'> {medal}  {p["name"]} {flag}'
-            if handle: line += f'  {handle}'
+            left_tag = ' *(left)*' if p.get('left_server') else ''
+            line   = f'> {medal}  {p["name"]} {flag}{left_tag}'
+            if not p.get('left_server') and handle: line += f'  {handle}'
             line  += f'  **{rank} Rank**'
             if rank_e: line += f' {rank_e}'
             if pts > 0: line += f'  [ *{pts} Points* ]'
@@ -322,7 +327,7 @@ async def build_alltime_lb(guild=None):
 
 async def build_rs_current_lb(guild=None):
     players = await sb_get('players', 'order=rs_points.desc')
-    ranked = [p for p in players if p.get('in_rs', False) and not p.get('rs_unranked', False)]
+    ranked = [p for p in players if p.get('in_rs', False) and not p.get('rs_unranked', False) and not p.get('left_server', False)]
     lines = ['**```RS Current Leaderboard```**\n']
     groups = []
     for p in ranked:
@@ -386,7 +391,8 @@ async def build_rs_alltime_lb(guild=None):
                 flag = p.get('flag', '')
                 part = p['name']
                 if flag: part += f' {flag}'
-                if handle: part += f' {handle}'
+                if p.get('left_server'): part += ' *(left)*'
+                elif handle: part += f' {handle}'
                 if p.get('is_elite'): part += ' ⭐'
                 parts.append(part)
             line = f'> {medal}  ' + ' / '.join(parts)
@@ -398,8 +404,9 @@ async def build_rs_alltime_lb(guild=None):
             flag   = p.get('flag', '')
             handle = fmt_handle(p.get('discord_handle', ''), guild)
             elite  = ' ⭐' if p.get('is_elite') else ''
-            line   = f'> {medal}  {p["name"]} {flag}'
-            if handle: line += f'  {handle}'
+            left_tag = ' *(left)*' if p.get('left_server') else ''
+            line   = f'> {medal}  {p["name"]} {flag}{left_tag}'
+            if not p.get('left_server') and handle: line += f'  {handle}'
             line += f'{elite}  **{rs_rank} Rank RS**'
             if pts > 0: line += f'  [ *{pts} Points* ]'
             lines.append(line); lines.append('> ')
@@ -407,7 +414,8 @@ async def build_rs_alltime_lb(guild=None):
     return '\n'.join(lines)
 
 async def build_members_post(guild=None):
-    players = await sb_get('players', 'order=join_order.asc')
+    all_players = await sb_get('players', 'order=join_order.asc')
+    players = [p for p in all_players if not p.get('left_server', False)]
     role_order = ['Owner', 'High Admin', 'Admin Of The Month', 'Admin', 'Manager', 'SOD_PVP']
     buckets = {r: [] for r in role_order}
     rest = []
@@ -658,6 +666,8 @@ async def full_role_sync(guild):
     print(f'[full_role_sync] {len(players)} players, {len(all_members)} guild members')
 
     for p in players:
+        if p.get('left_server', False):
+            continue
         handle = (p.get('discord_handle') or '').lstrip('@').lower()
         if not handle:
             continue
@@ -1172,6 +1182,7 @@ async def on_member_join(member):
             'in_tp': in_tp, 'in_rs': in_rs,
             'rs_rank': 'F', 'rs_points': 0, 'rs_wins': 0, 'rs_losses': 0,
             'rs_streak': 0, 'rs_start_points': 0, 'rs_unranked': False,
+            'left_server': False,
         }])
         log_ch = bot.get_channel(LOG_CHANNEL_ID)
         league_note = ' (TP)' if in_tp and not in_rs else ' (RS)' if in_rs and not in_tp else ' (TP + RS)' if in_tp and in_rs else ''
@@ -1197,10 +1208,10 @@ async def on_member_remove(member):
         print(f'[on_member_remove] {member.name} not found in DB by key or handle — skipping')
         return
     p = existing[0]
-    await sb_delete('players', f'key=eq.{p["key"]}')
+    await sb_patch('players', f'key=eq.{p["key"]}', {'left_server': True})
     asyncio.create_task(update_all_posts(member.guild))
     log_ch = bot.get_channel(LOG_CHANNEL_ID)
-    if log_ch: await log_ch.send(f'👋 **{member.display_name}** left the server and was removed from the roster.')
+    if log_ch: await log_ch.send(f'👋 **{member.display_name}** left the server — stats preserved in all-time leaderboard.')
 
 # ── AUTO HANDLE/USERNAME UPDATE ───────────────────────────────────────────────
 @bot.event
