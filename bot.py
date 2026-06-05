@@ -471,94 +471,70 @@ async def update_post(channel_id: int, content: str, post_key: str, thread_name:
     is_forum = isinstance(channel, discord.ForumChannel)
     sod = get_sod_guild()
 
-    async def fetch_thread(tid: int):
-        """Fetch a forum thread, unarchiving it if needed."""
+    async def get_thread(tid: int):
         t = bot.get_channel(tid)
         if t: return t
-        # guild.fetch_channel is the most reliable way to get a thread
         if sod:
-            try:
-                t = await sod.fetch_channel(tid)
-                if t: return t
+            try: return await sod.fetch_channel(tid)
             except: pass
-        try:
-            t = await bot.fetch_channel(tid)
-            if t: return t
+        try: return await bot.fetch_channel(tid)
         except: pass
         return None
 
-    async def try_edit_forum(tid: int, mid: int) -> bool:
-        """Edit a specific message inside a forum thread."""
+    async def edit_in_forum(tid: int) -> bool:
+        """Find the bot's own message in a forum thread and edit it."""
         try:
-            thread = await fetch_thread(tid)
-            if not thread:
-                print(f'[update_post] thread {tid} not found ({post_key})')
-                return False
+            thread = await get_thread(tid)
+            if not thread: return False
             if getattr(thread, 'archived', False):
-                await thread.edit(archived=False)
-            msg = await thread.fetch_message(mid)
-            await msg.edit(content=content)
-            return True
+                try: await thread.edit(archived=False)
+                except: pass
+            async for msg in thread.history(limit=20):
+                if msg.author == bot.user:
+                    await msg.edit(content=content)
+                    return True
+            return False
         except Exception as e:
-            print(f'[update_post] forum edit failed ({post_key} tid={tid} mid={mid}): {e}')
+            print(f'[update_post] forum edit error ({post_key}): {e}')
             return False
 
-    async def try_edit_channel(mid: int) -> bool:
+    async def edit_in_channel(mid: int) -> bool:
         try:
             msg = await channel.fetch_message(mid)
             await msg.edit(content=content); return True
-        except Exception as e:
-            print(f'[update_post] channel edit failed ({post_key}): {e}'); return False
+        except: return False
 
-    # Try in-memory cache — stored as (thread_id, msg_id) for forum
+    # Try in-memory cache (thread_id for forum, msg_id for regular)
     if post_key in LB_MSG_IDS:
         cached = LB_MSG_IDS[post_key]
-        if is_forum and isinstance(cached, tuple):
-            ok = await try_edit_forum(*cached)
-        elif is_forum:
-            ok = False  # stale non-tuple entry, skip
-        else:
-            ok = await try_edit_channel(cached)
+        ok = await edit_in_forum(cached) if is_forum else await edit_in_channel(cached)
         if ok: return
         del LB_MSG_IDS[post_key]
 
-    # Try DB-stored ID (always stored as "thread_id:msg_id" for forum)
+    # Try DB-stored ID
     try:
         rows = await sb_get('settings', f'key=eq.post_{post_key}')
         if rows and rows[0].get('value'):
             val = rows[0]['value']
-            if is_forum and ':' in val:
-                tid, mid = [int(x) for x in val.split(':', 1)]
-                if await try_edit_forum(tid, mid):
-                    LB_MSG_IDS[post_key] = (tid, mid); return
-            elif not is_forum:
-                mid = int(val)
-                if await try_edit_channel(mid):
-                    LB_MSG_IDS[post_key] = mid; return
+            stored_id = int(val.split(':')[0])  # handle both 'tid' and old 'tid:mid' format
+            ok = await edit_in_forum(stored_id) if is_forum else await edit_in_channel(stored_id)
+            if ok:
+                LB_MSG_IDS[post_key] = stored_id; return
     except Exception as e:
         print(f'[update_post] DB lookup error ({post_key}): {e}')
 
-    # Nothing found — create fresh
+    # Nothing found — create fresh thread/post
     print(f'[update_post] creating fresh post for {post_key}')
     try:
         if is_forum:
             name = thread_name or post_key.replace('_', ' ').upper()
             thread = await channel.create_thread(name=name, content=content)
-            # Get real starter message ID from history — don't assume thread.id == msg.id
-            mid = None
-            async for m in thread.history(limit=1, oldest_first=True):
-                mid = m.id; break
-            if mid is None:
-                print(f'[update_post] WARNING: could not get msg id for {post_key}, storing thread.id as fallback')
-                mid = thread.id
-            LB_MSG_IDS[post_key] = (thread.id, mid)
-            await sb_upsert('settings', [{'key': f'post_{post_key}', 'value': f'{thread.id}:{mid}'}])
-            print(f'[update_post] created forum thread for {post_key}: thread={thread.id} msg={mid}')
+            LB_MSG_IDS[post_key] = thread.id
+            await sb_upsert('settings', [{'key': f'post_{post_key}', 'value': str(thread.id)}])
         else:
             msg = await channel.send(content)
             LB_MSG_IDS[post_key] = msg.id
             await sb_upsert('settings', [{'key': f'post_{post_key}', 'value': str(msg.id)}])
-            print(f'[update_post] created channel post for {post_key}: msg={msg.id}')
     except Exception as e:
         print(f'[update_post] FAILED to create ({post_key}): {e}')
 
