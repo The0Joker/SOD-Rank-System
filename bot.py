@@ -474,6 +474,9 @@ async def update_post(channel_id: int, content: str, post_key: str, thread_name:
     async def get_thread(tid: int):
         t = bot.get_channel(tid)
         if t: return t
+        # Try the forum channel's own thread cache first
+        t = channel.get_thread(tid) if hasattr(channel, 'get_thread') else None
+        if t: return t
         if sod:
             try: return await sod.fetch_channel(tid)
             except: pass
@@ -489,8 +492,9 @@ async def update_post(channel_id: int, content: str, post_key: str, thread_name:
             if getattr(thread, 'archived', False):
                 try: await thread.edit(archived=False)
                 except: pass
+            bot_id = bot.user.id  # compare by ID — author is Member, bot.user is ClientUser
             async for msg in thread.history(limit=20):
-                if msg.author == bot.user:
+                if msg.author.id == bot_id:
                     await msg.edit(content=content)
                     return True
             return False
