@@ -1813,7 +1813,7 @@ async def slash_setuppost(interaction: discord.Interaction):
         try:
             ch = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
             content = await builder(guild)
-            result = await ch.create_thread(name=thread_name, content=content)
+            result = await ch.create_thread(name=thread_name, content=content, auto_archive_duration=10080)
             lines.append(f'{env_key}={result.thread.id}:{result.message.id}')
         except Exception as e:
             lines.append(f'# {env_key} FAILED: {e}')
