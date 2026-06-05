@@ -1801,37 +1801,24 @@ async def slash_setuppost(interaction: discord.Interaction):
     if not await check_permission(interaction, 'sync'): return
     guild = interaction.guild
     lines = ['**Paste these into Render → Environment:**\n```']
-    try:
-        posts = [
-            ('POST_TP_ALLTIME', TP_THREAD_ID, 'ALL TIME LEADERBOARD', build_alltime_lb),
-            ('POST_TP_CURRENT', TP_THREAD_ID, 'CURRENT LEADERBOARD',  build_current_lb),
-            ('POST_RS_ALLTIME', RS_THREAD_ID, 'ALL TIME LEADERBOARD', build_rs_alltime_lb),
-            ('POST_RS_CURRENT', RS_THREAD_ID, 'CURRENT LEADERBOARD',  build_rs_current_lb),
-        ]
-        for env_key, forum_id, thread_name, builder in posts:
-            forum = bot.get_channel(forum_id) or await bot.fetch_channel(forum_id)
+    all_posts = [
+        ('POST_TP_ALLTIME',  TP_THREAD_ID, 'ALL TIME LEADERBOARD', build_alltime_lb),
+        ('POST_TP_CURRENT',  TP_THREAD_ID, 'CURRENT LEADERBOARD',  build_current_lb),
+        ('POST_RS_ALLTIME',  RS_THREAD_ID, 'ALL TIME LEADERBOARD', build_rs_alltime_lb),
+        ('POST_RS_CURRENT',  RS_THREAD_ID, 'CURRENT LEADERBOARD',  build_rs_current_lb),
+        ('POST_EX_MEMBERS',  MEMBERS_ID,   'Ex Members',           build_ex_members_post),
+        ('POST_MEMBERS',     MEMBERS_ID,   'Clan Members',          build_members_post),
+    ]
+    for env_key, channel_id, thread_name, builder in all_posts:
+        try:
+            ch = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
             content = await builder(guild)
-            result = await forum.create_thread(name=thread_name, content=content)
-            thread = result.thread
-            msg = result.message
-            lines.append(f'{env_key}={thread.id}:{msg.id}')
-        # Members channel posts — Ex Members first, Clan Members second (on top)
-        members_ch = bot.get_channel(MEMBERS_ID) or await bot.fetch_channel(MEMBERS_ID)
-        for env_key, thread_name, builder in [
-            ('POST_EX_MEMBERS', 'Ex Members 🪦',  build_ex_members_post),
-            ('POST_MEMBERS',    'Clan Members',    build_members_post),
-        ]:
-            content = await builder(guild)
-            if isinstance(members_ch, discord.ForumChannel):
-                result = await members_ch.create_thread(name=thread_name, content=content)
-                lines.append(f'{env_key}={result.thread.id}:{result.message.id}')
-            else:
-                msg = await members_ch.send(content)
-                lines.append(f'{env_key}={msg.id}')
-        lines.append('```\n⚠️ Add these to Render env vars then redeploy.')
-        await interaction.followup.send('\n'.join(lines), ephemeral=True)
-    except Exception as e:
-        await interaction.followup.send(f'❌ Error: {e}', ephemeral=True)
+            result = await ch.create_thread(name=thread_name, content=content)
+            lines.append(f'{env_key}={result.thread.id}:{result.message.id}')
+        except Exception as e:
+            lines.append(f'# {env_key} FAILED: {e}')
+    lines.append('```\n⚠️ Add these to Render env vars then redeploy.')
+    await interaction.followup.send('\n'.join(lines), ephemeral=True)
 
 @bot.tree.command(name='sync', description='Sync league memberships, roles, and all posts')
 async def slash_sync(interaction: discord.Interaction):
