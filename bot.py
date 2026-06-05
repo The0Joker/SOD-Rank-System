@@ -1020,6 +1020,32 @@ async def self_ping():
         except Exception as e:
             print(f'[self_ping] error: {e}')
 
+async def kick_watcher():
+    """Poll settings every 30s for a kick_player signal from the website."""
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        await asyncio.sleep(30)
+        try:
+            rows = await sb_get('settings', 'key=eq.kick_player')
+            if not rows or not rows[0].get('value'):
+                continue
+            handle = rows[0]['value']
+            await sb_patch('settings', 'key=eq.kick_player', {'value': ''})
+            guild = get_sod_guild()
+            if not guild:
+                continue
+            member = await find_member(guild, handle)
+            if not member:
+                print(f'[kick_watcher] member not found: {handle}')
+                continue
+            await member.kick(reason='Kicked via SOD tracker')
+            log_ch = bot.get_channel(LOG_CHANNEL_ID)
+            if log_ch:
+                await log_ch.send(f'🚫 **{member.display_name}** was kicked from the server via the tracker.')
+            print(f'[kick_watcher] kicked {member.name}')
+        except Exception as e:
+            print(f'[kick_watcher] error: {e}')
+
 async def manual_edit_sync_watcher():
     """Poll settings table every 60s for a manual rank edit, then fix Discord role."""
     await bot.wait_until_ready()
@@ -1115,6 +1141,7 @@ async def on_ready():
     asyncio.create_task(self_ping())
     asyncio.create_task(periodic_role_sync())
     asyncio.create_task(manual_edit_sync_watcher())
+    asyncio.create_task(kick_watcher())
 
 # ── CHALLENGE EXPIRY SCHEDULER ────────────────────────────────────────────────
 async def challenge_expiry_loop():
