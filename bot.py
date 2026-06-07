@@ -1068,30 +1068,42 @@ async def self_ping():
             print(f'[self_ping] error: {e}')
 
 async def kick_watcher():
-    """Poll settings every 30s for a kick_player signal from the website."""
+    """Poll settings every 2 min for kick_player and trigger_setuppost signals from the website."""
     await bot.wait_until_ready()
     while not bot.is_closed():
         await asyncio.sleep(120)  # every 2 minutes
         try:
             rows = await sb_get('settings', 'key=eq.kick_player')
-            if not rows or not rows[0].get('value'):
-                continue
-            handle = rows[0]['value']
-            await sb_patch('settings', 'key=eq.kick_player', {'value': ''})
-            guild = get_sod_guild()
-            if not guild:
-                continue
-            member = await find_member(guild, handle)
-            if not member:
-                print(f'[kick_watcher] member not found: {handle}')
-                continue
-            await member.kick(reason='Kicked via SOD tracker')
-            log_ch = bot.get_channel(LOG_CHANNEL_ID)
-            if log_ch:
-                await log_ch.send(f'🚫 **{member.display_name}** was kicked from the server via the tracker.')
-            print(f'[kick_watcher] kicked {member.name}')
+            if rows and rows[0].get('value'):
+                handle = rows[0]['value']
+                await sb_patch('settings', 'key=eq.kick_player', {'value': ''})
+                guild = get_sod_guild()
+                if guild:
+                    member = await find_member(guild, handle)
+                    if not member:
+                        print(f'[kick_watcher] member not found: {handle}')
+                    else:
+                        await member.kick(reason='Kicked via SOD tracker')
+                        log_ch = bot.get_channel(LOG_CHANNEL_ID)
+                        if log_ch:
+                            await log_ch.send(f'🚫 **{member.display_name}** was kicked from the server via the tracker.')
+                        print(f'[kick_watcher] kicked {member.name}')
         except Exception as e:
-            print(f'[kick_watcher] error: {e}')
+            print(f'[kick_watcher] kick error: {e}')
+        try:
+            rows = await sb_get('settings', 'key=eq.trigger_setuppost')
+            if rows and rows[0].get('value') == 'pending':
+                await sb_patch('settings', 'key=eq.trigger_setuppost', {'value': 'running'})
+                guild = get_sod_guild()
+                try:
+                    await _run_setuppost(guild)
+                    await sb_patch('settings', 'key=eq.trigger_setuppost', {'value': 'done'})
+                    print('[kick_watcher] setuppost triggered from web — done')
+                except Exception as e2:
+                    await sb_patch('settings', 'key=eq.trigger_setuppost', {'value': f'error: {e2}'})
+                    print(f'[kick_watcher] setuppost error: {e2}')
+        except Exception as e:
+            print(f'[kick_watcher] setuppost-trigger error: {e}')
 
 async def manual_edit_sync_watcher():
     """Poll settings table every 60s for a manual rank edit, then fix Discord role."""
@@ -1795,28 +1807,44 @@ async def slash_ascension(interaction: discord.Interaction, challenger: str, def
             f'🌟 **Ascension match logged!** **{ch["name"]}** ({ch_rs_rank} RS) → **{entry_rank} TP** · defeated **{df["name"]}** ({df_tp_rank} TP) **{sc}**')
     asyncio.create_task(update_all_posts(guild))
 
-@bot.tree.command(name='setuppost', description='Create leaderboard posts and return IDs to paste into Render')
-async def slash_setuppost(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-    if not await check_permission(interaction, 'sync'): return
-    guild = interaction.guild
-    lines = ['**Paste these into Render → Environment:**\n```']
-    all_posts = [
-        ('POST_TP_ALLTIME',  TP_THREAD_ID, 'ALL TIME LEADERBOARD', build_alltime_lb),
-        ('POST_TP_CURRENT',  TP_THREAD_ID, 'CURRENT LEADERBOARD',  build_current_lb),
-        ('POST_RS_ALLTIME',  RS_THREAD_ID, 'ALL TIME LEADERBOARD', build_rs_alltime_lb),
-        ('POST_RS_CURRENT',  RS_THREAD_ID, 'CURRENT LEADERBOARD',  build_rs_current_lb),
-        ('POST_EX_MEMBERS',  MEMBERS_ID,   'Ex Members',           build_ex_members_post),
-        ('POST_MEMBERS',     MEMBERS_ID,   'Clan Members',          build_members_post),
-    ]
-    for env_key, channel_id, thread_name, builder in all_posts:
+_SETUP_POST_DEFS = [
+    ('POST_TP_ALLTIME', 'tp_alltime', TP_THREAD_ID, 'ALL TIME LEADERBOARD', lambda g: build_alltime_lb(g)),
+    ('POST_TP_CURRENT', 'tp_current', TP_THREAD_ID, 'CURRENT LEADERBOARD',  lambda g: build_current_lb(g)),
+    ('POST_RS_ALLTIME', 'rs_alltime', RS_THREAD_ID, 'ALL TIME LEADERBOARD', lambda g: build_rs_alltime_lb(g)),
+    ('POST_RS_CURRENT', 'rs_current', RS_THREAD_ID, 'CURRENT LEADERBOARD',  lambda g: build_rs_current_lb(g)),
+    ('POST_EX_MEMBERS', 'ex_members', MEMBERS_ID,   'Ex Members \U0001fab6',  lambda g: build_ex_members_post(g)),
+    ('POST_MEMBERS',    'members',    MEMBERS_ID,   'Clan Members',          lambda g: build_members_post(g)),
+]
+
+async def _run_setuppost(guild):
+    """Create all Discord posts, return {env_key: 'tid:mid'} dict, and persist IDs to settings table."""
+    results = {}
+    settings_rows = []
+    for env_key, post_key, channel_id, thread_name, builder in _SETUP_POST_DEFS:
         try:
             ch = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
             content = await builder(guild)
             result = await ch.create_thread(name=thread_name, content=content, auto_archive_duration=10080)
-            lines.append(f'{env_key}={result.thread.id}:{result.message.id}')
+            val = f'{result.thread.id}:{result.message.id}'
+            results[env_key] = val
+            settings_rows.append({'key': f'post_id_{post_key}', 'value': val})
         except Exception as e:
-            lines.append(f'# {env_key} FAILED: {e}')
+            results[env_key] = f'ERROR: {e}'
+    if settings_rows:
+        await sb_upsert('settings', settings_rows)
+    return results
+
+@bot.tree.command(name='setuppost', description='Create leaderboard posts and return IDs to paste into Render')
+async def slash_setuppost(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    if not await check_permission(interaction, 'sync'): return
+    results = await _run_setuppost(interaction.guild)
+    lines = ['**Paste these into Render → Environment:**\n```']
+    for env_key, val in results.items():
+        if val.startswith('ERROR:'):
+            lines.append(f'# {env_key} FAILED: {val[7:]}')
+        else:
+            lines.append(f'{env_key}={val}')
     lines.append('```\n⚠️ Add these to Render env vars then redeploy.')
     await interaction.followup.send('\n'.join(lines), ephemeral=True)
 

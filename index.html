@@ -719,6 +719,18 @@ select option{background:var(--bg2);color:var(--tx);}
 <!-- SETTINGS -->
 <div class="sec" id="tab-settings">
   <div class="card">
+    <div class="ctitle">📋 Discord Posts Setup</div>
+    <p style="font-size:13px;color:var(--tx2);margin-bottom:16px;line-height:1.7;">
+      Creates leaderboard and member posts in Discord. After running, the post IDs are stored here — copy each line and paste them into <strong style="color:var(--tx)">Render → Environment Variables</strong>, then redeploy the bot.
+    </p>
+    <div id="setup-post-ids"><div class="empty">Loading…</div></div>
+    <div style="margin-top:16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <button class="btn" onclick="triggerSetupPost()">🚀 Create Discord Posts</button>
+      <button class="bxs" onclick="loadSetupPostStatus()">↻ Refresh</button>
+    </div>
+    <div class="msg" id="setup-post-msg"></div>
+  </div>
+  <div class="card">
     <div class="ctitle">⚙ Command Permissions</div>
     <p style="font-size:13px;color:var(--tx2);margin-bottom:16px;line-height:1.7;">
       Control who can use each Discord slash command. Changes are saved to the database and take effect immediately — no bot restart needed.
@@ -1261,13 +1273,13 @@ function renderAll(){
   renderGODBanner();renderRoster();renderLB();renderAllTime();renderManualEdit();renderPlayers();renderHistory();renderDatalist();renderChallenges();
 }
 function exportCSV(){const rows=[['Player','Rank','Wins','Losses','Win%','Points','Handle','Flag','Status']];Object.values(DB.players).forEach(p=>{const t=p.wins+p.losses;rows.push([p.name,p.unranked?'Unranked':p.rank,p.wins,p.losses,t>0?Math.round(p.wins/t*100)+'%':'0%',p.points||0,p.discord_handle||'',p.flag||'',p.unranked?'Unranked':'Active']);});const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(rows.map(r=>r.join(',')).join('\n'));a.download='sod_rankings.csv';a.click();}
-function go(name){const names=['roster','log','lb','players','challenges','history','rules','settings'];document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('on',names[i]===name));document.querySelectorAll('.sec').forEach(s=>s.classList.remove('on'));document.getElementById('tab-'+name).classList.add('on');if(name==='settings')loadPerms();}
+function go(name){const names=['roster','log','lb','players','challenges','history','rules','settings'];document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('on',names[i]===name));document.querySelectorAll('.sec').forEach(s=>s.classList.remove('on'));document.getElementById('tab-'+name).classList.add('on');if(name==='settings'){loadPerms();loadSetupPostStatus();}}
 function goSub(name){const names=['current','alltime','manualedit'];document.querySelectorAll('.stab').forEach((t,i)=>t.classList.toggle('on',names[i]===name));document.querySelectorAll('.ssec').forEach(s=>s.classList.remove('on'));document.getElementById('sub-'+name).classList.add('on');}
 
 ['p1','p2','score-sel','match-league'].forEach(id=>{document.getElementById(id).addEventListener('input',updatePreview);document.getElementById(id).addEventListener('change',updatePreview);});
 
-const CMD_LIST=[{key:'pvp',label:'/pvp',desc:'Log a PvP match result'},{key:'addmember',label:'/addmember',desc:'Add a new clan member'},{key:'removemember',label:'/removemember',desc:'Remove a clan member'},{key:'unrank',label:'/unrank',desc:'Remove player from leaderboard'},{key:'rerank',label:'/rerank',desc:'Re-add an unranked player'},{key:'sync',label:'/sync',desc:'Sync all Discord posts and roles'},{key:'leaderboard',label:'/leaderboard',desc:'Refresh leaderboard posts'},{key:'sethandle',label:'/sethandle',desc:'Set a player Discord handle'},{key:'mystats',label:'/mystats',desc:'Check your own PvP stats'},{key:'challenge',label:'/challenge',desc:'Challenge another clan member'},{key:'accept',label:'/accept',desc:'Accept a pending challenge'},{key:'decline',label:'/decline',desc:'Decline a pending challenge'},{key:'challenges',label:'/challenges',desc:'View open and recent challenges'},{key:'joinleague',label:'/joinleague',desc:'Join a league at F rank'},{key:'leaveleague',label:'/leaveleague',desc:'Leave a league'},{key:'ascension',label:'/ascension',desc:'RS-only player enters True Power'}];
-const CMD_DEFAULTS_JS={pvp:'owner',addmember:'owner',removemember:'owner',unrank:'owner',rerank:'owner',sync:'owner',leaderboard:'admin',sethandle:'admin',mystats:'all',challenge:'all',accept:'all',decline:'all',challenges:'all',joinleague:'all',leaveleague:'all',ascension:'all'};
+const CMD_LIST=[{key:'pvp',label:'/pvp',desc:'Log a PvP match result'},{key:'addmember',label:'/addmember',desc:'Add a new clan member'},{key:'removemember',label:'/removemember',desc:'Remove a clan member'},{key:'unrank',label:'/unrank',desc:'Remove player from leaderboard'},{key:'rerank',label:'/rerank',desc:'Re-add an unranked player'},{key:'sync',label:'/sync',desc:'Sync all Discord posts and roles'},{key:'leaderboard',label:'/leaderboard',desc:'Refresh leaderboard posts'},{key:'setuppost',label:'/setuppost',desc:'Create leaderboard posts (also triggerable from Settings)'},{key:'sethandle',label:'/sethandle',desc:'Set a player Discord handle'},{key:'mystats',label:'/mystats',desc:'Check your own PvP stats'},{key:'challenge',label:'/challenge',desc:'Challenge another clan member'},{key:'accept',label:'/accept',desc:'Accept a pending challenge'},{key:'decline',label:'/decline',desc:'Decline a pending challenge'},{key:'challenges',label:'/challenges',desc:'View open and recent challenges'},{key:'joinleague',label:'/joinleague',desc:'Join a league at F rank'},{key:'leaveleague',label:'/leaveleague',desc:'Leave a league'},{key:'ascension',label:'/ascension',desc:'RS-only player enters True Power'}];
+const CMD_DEFAULTS_JS={pvp:'owner',addmember:'owner',removemember:'owner',unrank:'owner',rerank:'owner',sync:'owner',leaderboard:'admin',setuppost:'owner',sethandle:'admin',mystats:'all',challenge:'all',accept:'all',decline:'all',challenges:'all',joinleague:'all',leaveleague:'all',ascension:'all'};
 let PERMS_CACHE={};
 async function loadPerms(){document.getElementById('perms-body').innerHTML='<div class="empty">Loading…</div>';try{const rows=await sbGet('settings','key=like.cmd_%25');PERMS_CACHE={};rows.forEach(r=>{PERMS_CACHE[r.key.replace('cmd_','')]=r.value;});renderPerms();}catch(e){document.getElementById('perms-body').innerHTML='<div class="empty" style="color:var(--txd)">Error loading permissions. Make sure the <code>settings</code> table exists in Supabase.</div>';}}
 function renderPerms(){document.getElementById('perms-body').innerHTML=`<div class="tbl"><div class="tr th perm-th-grid" style="grid-template-columns:minmax(0,1fr) minmax(0,1.5fr) 200px 80px;"><div>Command</div><div>Description</div><div>Who can use it</div><div>Save</div></div>${CMD_LIST.map(cmd=>{const cur=PERMS_CACHE[cmd.key]||CMD_DEFAULTS_JS[cmd.key]||'owner';return`<div class="tr perm-row-grid" style="grid-template-columns:minmax(0,1fr) minmax(0,1.5fr) 200px 80px;"><div class="perm-cmd" style="font-weight:700;font-size:13px;">${esc(cmd.label)}</div><div class="perm-desc" style="font-size:12px;color:var(--tx2);">${esc(cmd.desc)}</div><div><select id="perm-sel-${esc(cmd.key)}" style="height:32px;font-size:12px;"><option value="owner" ${cur==='owner'?'selected':''}>👑 Owner only</option><option value="admin" ${cur==='admin'?'selected':''}>🛡 Admin + Owner</option><option value="all" ${cur==='all'?'selected':''}>👥 All members</option></select></div><div><button class="bxs success" onclick="savePerm('${esc(cmd.key)}')">Save</button></div></div>`;}).join('')}</div><div style="margin-top:14px;display:flex;gap:8px;"><button class="btn" onclick="saveAllPerms()">Save all</button><button class="bxs" onclick="resetPerms()">Reset to defaults</button></div>`;}
@@ -1286,6 +1298,74 @@ function renderChallenges(){
     const statusMap={accepted:{e:'✅',lbl:'Accepted',col:'var(--txs)'},declined:{e:'🚫',lbl:'Declined',col:'var(--txd)'},forfeited:{e:'⏰',lbl:'Forfeited',col:'var(--txw)'},expired:{e:'⏰',lbl:'Expired',col:'var(--txw)'},completed:{e:'🏆',lbl:'Completed',col:'var(--txi)'}};
     histEl.innerHTML=hist.map(c=>{const s=statusMap[c.status]||{e:'❓',lbl:c.status,col:'var(--tx2)'};const issued=c.created_at?c.created_at.slice(0,10):'?';const exp=c.expires_at?c.expires_at.slice(0,10):'?';const hLeague=c.league||'TP';const hLeagueTag=hLeague==='RS'?'<span class="league-rs">RS</span>':'<span class="league-tp">TP</span>';return`<div class="tr" style="grid-template-columns:minmax(0,1fr) 24px minmax(0,1fr) 80px 90px 80px;"><div style="font-weight:700">${hLeagueTag} ${esc(c.challenger_name)} <span class="rb r${esc(c.challenger_rank_at_time)}" style="font-size:10px;">${esc(c.challenger_rank_at_time)}</span></div><div style="text-align:center;font-size:14px;">⚔️</div><div style="font-weight:700">${esc(c.defender_name)} <span class="rb r${esc(c.defender_rank_at_time)}" style="font-size:10px;">${esc(c.defender_rank_at_time)}</span></div><div><span style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.05);color:${s.col};">${s.lbl}</span></div><div style="font-size:12px;color:var(--tx3)">${issued}</div><div style="font-size:12px;color:var(--tx3)">${exp}</div></div>`;}).join('');}
 }
+
+// ── DISCORD POSTS SETUP ───────────────────────────────────────────────────────
+const POST_ID_DEFS=[
+  {key:'post_id_tp_alltime',env:'POST_TP_ALLTIME',label:'TP All Time LB'},
+  {key:'post_id_tp_current',env:'POST_TP_CURRENT',label:'TP Current LB'},
+  {key:'post_id_rs_alltime',env:'POST_RS_ALLTIME',label:'RS All Time LB'},
+  {key:'post_id_rs_current',env:'POST_RS_CURRENT',label:'RS Current LB'},
+  {key:'post_id_ex_members',env:'POST_EX_MEMBERS',label:'Ex Members Post'},
+  {key:'post_id_members',   env:'POST_MEMBERS',   label:'Clan Members Post'},
+];
+async function loadSetupPostStatus(){
+  const el=document.getElementById('setup-post-ids');if(!el)return;
+  try{
+    const rows=await sbGet('settings','key=like.post_id_%25');
+    const byKey={};rows.forEach(r=>byKey[r.key]=r.value);
+    const trigRows=await sbGet('settings','key=eq.trigger_setuppost');
+    const trigVal=(trigRows[0]||{}).value||'';
+    let statusHtml='';
+    if(trigVal==='pending'||trigVal==='running'){
+      statusHtml=`<div style="font-size:12px;color:var(--txw);margin-bottom:10px;">⏳ Bot is creating posts… (status: ${esc(trigVal)})</div>`;
+    }else if(trigVal.startsWith('error')){
+      statusHtml=`<div style="font-size:12px;color:var(--txd);margin-bottom:10px;">❌ Last run failed: ${esc(trigVal)}</div>`;
+    }
+    if(!POST_ID_DEFS.some(d=>byKey[d.key])){
+      el.innerHTML=statusHtml+'<div class="empty">No post IDs stored yet. Click "Create Discord Posts" to generate them.</div>';return;
+    }
+    let html=statusHtml+'<div style="font-size:12px;color:var(--tx2);margin-bottom:10px;">Paste each line into <strong style=\'color:var(--tx)\'>Render → Environment Variables</strong> then redeploy:</div>';
+    html+='<div style="background:var(--bg2);border:1px solid var(--br);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:8px;">';
+    POST_ID_DEFS.forEach(({key,env,label})=>{
+      const val=byKey[key]||'';
+      html+=`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="font-size:11px;color:var(--tx3);min-width:138px;">${esc(label)}</span>
+        <code style="flex:1;font-size:12px;color:${val?'var(--txs)':'var(--tx3)'};word-break:break-all;">${val?`${esc(env)}=${esc(val)}`:'not set'}</code>
+        ${val?`<button class="bxs" data-copy="${esc(env)}=${esc(val)}" onclick="copyEnvVar(this)">Copy</button>`:''}
+      </div>`;
+    });
+    html+='</div>';
+    el.innerHTML=html;
+  }catch(e){el.innerHTML=`<div class="empty" style="color:var(--txd)">Error: ${esc(e.message)}</div>`;}
+}
+let _setupPollInterval=null;
+async function triggerSetupPost(){
+  const msg=document.getElementById('setup-post-msg');
+  if(!confirm('This will create NEW Discord posts and overwrite the stored IDs.\nContinue?'))return;
+  try{
+    await sbUpsert('settings',[{key:'trigger_setuppost',value:'pending'}]);
+    msg.className='msg ok';msg.textContent='⏳ Trigger sent — bot will create posts within 2 minutes…';
+    await loadSetupPostStatus();
+    if(_setupPollInterval)clearInterval(_setupPollInterval);
+    let tries=0;
+    _setupPollInterval=setInterval(async()=>{
+      tries++;
+      try{
+        const rows=await sbGet('settings','key=eq.trigger_setuppost');
+        const val=(rows[0]||{}).value||'';
+        await loadSetupPostStatus();
+        if(val==='done'){clearInterval(_setupPollInterval);_setupPollInterval=null;msg.className='msg ok';msg.textContent='✅ Posts created! Copy the IDs below into Render env vars.';}
+        else if(val.startsWith('error')){clearInterval(_setupPollInterval);_setupPollInterval=null;msg.className='msg err';msg.textContent='❌ Setup failed — see status above.';}
+        else if(tries>=18){clearInterval(_setupPollInterval);_setupPollInterval=null;msg.className='msg';msg.textContent='⚠️ Timed out. Refresh manually to check status.';}
+      }catch(e2){clearInterval(_setupPollInterval);_setupPollInterval=null;msg.className='msg err';msg.textContent='Poll error: '+e2.message;}
+    },10000);
+  }catch(e){msg.className='msg err';msg.textContent='Error: '+e.message;}
+}
+function copyEnvVar(btn){
+  const text=btn.dataset.copy;
+  navigator.clipboard.writeText(text).then(()=>{const orig=btn.textContent;btn.textContent='Copied!';setTimeout(()=>btn.textContent=orig,1500);}).catch(()=>{});
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 setInterval(loadAll,30000);
 loadAll();
